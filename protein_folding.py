@@ -13,3 +13,4 @@ for model in structure:
             if "CA" in residue:  # only alpha-carbon
                 ca_positions[(chain.id, residue.id[1])] = residue["CA"].coord
 print(ca_positions)
+# Hi I just testing to push to GitHub
