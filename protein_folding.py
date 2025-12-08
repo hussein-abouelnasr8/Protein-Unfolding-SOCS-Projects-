@@ -8,6 +8,7 @@ structure = parser.get_structure("protein", "1NCT.pdb")
 # store Cα atoms in a simple dict: (chain, resseq) → np.array([x,y,z])
 ca_positions = {}
 
+#hydrophobicity constants for applicable amino acids
 hydroph_m = {'ARG': 0.3,
              'MET': 0.4,
              'LYS': 0.4,
@@ -17,7 +18,30 @@ hydroph_m = {'ARG': 0.3,
              'PRO': 0.8,
              'TYR': 1.1,
              'PHE': 1.6,
-             'TRP': 1.6}
+             'TRP': 1.6,}
+#maps 3 letter aa codes to 1 letter
+aa3_to_aa1 = {
+    "ALA": "A",
+    "ARG": "R",
+    "ASN": "N",
+    "ASP": "D",
+    "CYS": "C",
+    "GLN": "Q",
+    "GLU": "E",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LEU": "L",
+    "LYS": "K",
+    "MET": "M",
+    "PHE": "F",
+    "PRO": "P",
+    "SER": "S",
+    "THR": "T",
+    "TRP": "W",
+    "TYR": "Y",
+    "VAL": "V",}
+  
 
 for model in structure:
     for chain in model:
