@@ -156,6 +156,41 @@ def F_bonds(positions, bonded_pairs, k_r, r_eq):
     return
 
 def F_bb_angles():
+    # angles : (A,3) array of (i,j,k) defining angle i-j-k
+
+    i, j, k = angles[:,0], angles[:,1], angles[:,2]
+
+    rij = positions[i] - positions[j]
+    rkj = positions[k] - positions[j]
+
+    rij_norm = np.linalg.norm(rij, axis=1)
+    rkj_norm = np.linalg.norm(rkj, axis=1)
+
+    e_ij = rij / rij_norm[:,None]
+    e_kj = rkj / rkj_norm[:,None]
+
+    cos_theta = np.sum(e_ij * e_kj, axis=1)
+    theta = np.arccos(cos_theta)
+
+    # dU/dθ
+    dU_dtheta = 2 * k_theta * (theta - theta_eq)
+
+    sin_theta = np.sqrt(1 - cos_theta**2)
+    sin_theta = np.where(sin_theta < 1e-12, 1e-12, sin_theta)
+
+    # vector parts used by every MD code
+    n_i = (cos_theta[:,None] * e_ij - e_kj) / (rij_norm * sin_theta)[:,None]
+    n_k = (cos_theta[:,None] * e_kj - e_ij) / (rkj_norm * sin_theta)[:,None]
+
+    Fi = -dU_dtheta[:,None] * n_i
+    Fk = -dU_dtheta[:,None] * n_k
+    Fj = -(Fi + Fk)
+
+    F = np.zeros_like(positions)
+    np.add.at(F, i, Fi)
+    np.add.at(F, j, Fj)
+    np.add.at(F, k, Fk)
+    return F
 
 
 
@@ -169,8 +204,36 @@ def F_pull():
 
     return
 
-def contact_potentials():
+# Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
+def non_contact_forces(positions, pairs, A, B, charges, epsilon):
 
+  """
+    pairs : (P,2) atom pairs to evaluate
+    A,B   : LJ parameters per pair
+    charges: array of charges
+    """
+  i, j = pairs[:,0], pairs[:,1]
+
+        rij = positions[i] - positions[j]
+        r = np.linalg.norm(rij, axis=1)
+        rhat = rij / r[:,None]
+    
+        # LJ + Coulomb derivatives
+        dU_dr = (
+            -12*A / r**13
+            + 6*B / r**7
+            - (charges[i] * charges[j]) / (epsilon * r**2)
+        )
+    
+        fmag = -dU_dr
+        fij = fmag[:,None] * rhat
+    
+        F = np.zeros_like(positions)
+        np.add.at(F, i,  fij)
+        np.add.at(F, j, -fij)
+        return F
+
+  
 
 
 def run_langevin_dynamics(masses, F_pull):
