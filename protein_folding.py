@@ -8,6 +8,17 @@ structure = parser.get_structure("protein", "1NCT.pdb")
 # store Cα atoms in a simple dict: (chain, resseq) → np.array([x,y,z])
 ca_positions = {}
 
+hydroph_m = {'ARG': 0.3,
+             'MET': 0.4,
+             'LYS': 0.4,
+             'VAL': 0.6,
+             'ILE': 0.8,
+             'LEU': 0.8,
+             'PRO': 0.8,
+             'TYR': 1.1,
+             'PHE': 1.6,
+             'TRP': 1.6}
+
 for model in structure:
     for chain in model:
         for residue in chain:
