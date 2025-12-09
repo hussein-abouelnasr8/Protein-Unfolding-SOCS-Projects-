@@ -54,6 +54,94 @@ print(ca_positions)
 keys = sorted(ca_positions.keys())
 coords = np.array([ca_positions[k] for k in keys])
 
+def hydro_forces(
+        positions,
+        keys,
+        masses,
+        residue_names,
+        hydroph_m,
+        cutoff=5.0,
+        min_exclusion=2.0
+    ):
+    """
+    Find non-bonded, non-adjacent contacts filtered by hydrophobicity,
+    and compute forces using hydrophobicity 'm' values:
+
+        F = 2*(m_i + m_j)/r^3 * rhat
+
+    EXCLUDES:
+      • Adjacent residues
+      • Too-close residues (d < min_exclusion)
+      • Pairs where BOTH hydrophobicity m-values = 0
+
+    Parameters
+    ----------
+    positions : (N,3) array
+    keys : list of (chain, resseq)
+    masses : (N,) array (kept but not used for hydrophobic forces)
+    residue_names : list of 3-letter residue names aligned to positions
+    hydroph_m : dict mapping 3-letter codes → m values
+    cutoff : float (upper cutoff)
+    min_exclusion : float (lower cutoff)
+
+    Returns
+    -------
+    contacts : list of ((chain_i, resseq_i), (chain_j, resseq_j), distance)
+    forces   : (N,3) accumulated force vectors
+    """
+
+    N = len(positions)
+    forces = np.zeros_like(positions)
+
+    # Distance matrix
+    diff = positions[:, None, :] - positions[None, :, :]
+    dist_matrix = np.linalg.norm(diff, axis=2)
+
+    contacts = []
+
+    for i in range(N):
+        for j in range(i+1, N):
+
+            chain_i, res_i = keys[i]
+            chain_j, res_j = keys[j]
+
+            # ===== 1. EXCLUDE adjacent residues =====
+            if chain_i == chain_j and abs(res_i - res_j) == 1:
+                continue
+
+            # ===== 2. Hydrophobicity lookup =====
+            aa_i = residue_names[i]
+            aa_j = residue_names[j]
+
+            m_i = hydroph_m.get(aa_i, 0.0)
+            m_j = hydroph_m.get(aa_j, 0.0)
+
+            # ===== 3. EXCLUDE pairs where both hydrophobicities are zero =====
+            if m_i == 0.0 and m_j == 0.0:
+                continue
+
+            d = dist_matrix[i, j]
+
+            # ===== 4. EXCLUDE pairs that are too close =====
+            if d < min_exclusion:
+                continue
+
+            # ===== 5. INCLUDE only pairs within cutoff =====
+            if d < cutoff:
+                contacts.append((keys[i], keys[j], d))
+
+                # compute force
+                rij = diff[i, j]
+                rhat = rij / d
+                fmag = 2 * (m_i + m_j) / (d**3)
+
+                fij = fmag * rhat
+                forces[i] += fij
+                forces[j] -= fij
+
+    return contacts, forces
+
+
 def bond_lengths(coords):
     return np.linalg.norm(coords, axis = 1)
     
