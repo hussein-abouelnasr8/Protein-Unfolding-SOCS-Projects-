@@ -505,7 +505,7 @@ def total_force_contribution(
     Returns updated (positions, velocities)
     """
 
-    m = masses[:,None]       # (N,1)
+    #m = masses[:,None]       # (N,1)
     g = gamma[:,None]        # (N,1)
 
       # (N,3)
