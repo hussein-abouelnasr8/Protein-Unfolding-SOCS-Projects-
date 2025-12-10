@@ -133,13 +133,63 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 2 * (m_i + m_j) / (d**3)
+                fmag = 2 *1.25 *(m_i + m_j)*d * 9.21*(10**-11) #Conversion to 10**-10 N
 
                 fij = fmag * rhat
-                forces[i] += fij
+                forces[i] += fij 
                 forces[j] -= fij
 
     return contacts, forces
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+
+def plot_protein_3d_interactive(coords, keys=None):
+    """
+    Plot a protein Cα trace in 3D using Plotly (interactive rotation).
+    
+    Parameters
+    ----------
+    coords : (N,3) numpy array
+        Cα coordinates
+    keys : list of tuples (chain, resseq)
+        Optional labels for residues
+    """
+
+    # --- Backbone lines ---
+    line_trace = go.Scatter3d(
+        x=coords[:,0],
+        y=coords[:,1],
+        z=coords[:,2],
+        mode='lines',
+        line=dict(color='black', width=4),
+        name='Backbone'
+    )
+
+    # --- Residue points ---
+    points_trace = go.Scatter3d(
+        x=coords[:,0],
+        y=coords[:,1],
+        z=coords[:,2],
+        mode='markers+text' if keys is not None else 'markers',
+        marker=dict(size=4, color='red'),
+        text=[f"{c}{r}" for c,r in keys] if keys is not None else None,
+        textposition="top center",
+        name='Cα atoms'
+    )
+
+    fig = go.Figure(data=[line_trace, points_trace])
+    fig.update_layout(
+        title="Protein Cα Trace (3D Interactive)",
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        )
+    )
+    fig.show(renderer="browser")
 
 '''turns coordinates into pairwise bond vectors, with magnitude
 rij between residue i & consecutive residue j of size N-1'''
