@@ -532,7 +532,7 @@ def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
 
     return positions_new, velocities_new
     
-#Initializae system and iterate dynamics
+#Initialize system and iterate dynamics
 #extract & set up masses
 #initializa velocities
 #set up parameters: gamma, T, r_eq, K_r, k_theta, ...
