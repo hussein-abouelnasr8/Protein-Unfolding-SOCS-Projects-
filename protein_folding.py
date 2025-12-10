@@ -537,7 +537,7 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
-    F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
+    #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
           
@@ -577,7 +577,7 @@ angle_triple_indices = angle_triplets(N)
 angle_quadruple_indices = angle_quadruples(N)
 
 #model parameters
-radius = 3e-10 # bead radii 
+radius = 2 # bead radii 
 eta = 3.0e-3
 gamma = 6* np.pi * eta * radius
 # Change gamma to N,1 vector
@@ -586,6 +586,20 @@ gammas = gammas[:,None]
 dt = 10e-10
 kB = 1.38e-23
 T = 300
+
+#equilibrium values
+theta_eq = 110
+phi_eq = 130
+r_eq = 3.8
+r_trap0 = 2
+v_pull = 1
+
+#stiffness factors
+k_r = 60
+k_phi = 2
+k_theta = 0.01
+k_trap = 1
+
 
 time_steps = tot_duration/dt
 time = 0
