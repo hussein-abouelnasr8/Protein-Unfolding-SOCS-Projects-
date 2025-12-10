@@ -60,8 +60,9 @@ def hydro_forces(
         masses,
         residue_names,
         hydroph_m,
-        cutoff=5.0,
-        min_exclusion=2.0
+        radius,
+        cutoff= np.sqrt(4.5)+2*radius,
+        min_exclusion= np.sqrt(3.7)+2*radius
     ):
     """
     Find non-bonded, non-adjacent contacts filtered by hydrophobicity,
@@ -133,7 +134,7 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 2 *1.25 *(m_i + m_j)*d * 9.21*(10**-11) #Conversion to 10**-10 N
+                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 9.21*(10**-11) #Conversion to 10**-10 N
 
                 fij = fmag * rhat
                 forces[i] += fij 
