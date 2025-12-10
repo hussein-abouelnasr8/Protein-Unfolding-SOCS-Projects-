@@ -141,27 +141,114 @@ def hydro_forces(
 
     return contacts, forces
 
-
+'''turns coordinates into pairwise bond vectors, with magnitude
+rij between residue i & consecutive residue j of size N-1'''
+def bond_vectors(coords):
+    return coords[1:, :] - coords[:-1, :]
+""" calculates euclidean norm of each bond and returns magnitudes,
+  i.e. the bond lengths
+"""
 def bond_lengths(coords):
-    return np.linalg.norm(coords, axis = 1)
-    
-def angle_between_three(a, b, c, degrees=True):
+    rij = bond_vectors(coords)
+    return np.linalg.norm(rij, axis = 1)
+#sets up arra of the angle triple indices, i.e. [(0,1,2),(1,2,3),(2,3,4),...]
+#allows for vectorization of code in functions below
+def angle_triplets (N_residues):
 
-    u = a - b
-    v = c - b
+    triplets = np.column_stack([
+    np.arange(N_residues-2),      # i
+    np.arange(1, N_residues-1),   # j (vertex)
+    np.arange(2, N_residues)      # k
+])
+    return triplets
+#sets up arra of the angle quadruple indices, i.e. [(0,1,2,3),(1,2,3,4),(2,3,4,5),...]
+#allows for vectorization of code in functions below
+def angle_quadruples (N_residues):
 
-    nu = np.linalg.norm(u)
-    nv = np.linalg.norm(v)
+    quadruples = np.column_stack([
+    np.arange(N_residues-3),      
+    np.arange(1, N_residues-2),   
+    np.arange(2, N_residues-1),   
+    np.arange(3, N_residues)
+])
+    return quadruples
 
-    if nu == 0 or nv == 0:
-        return np.nan
+def planar_bond_angles(positions, angle_triplets, degrees=True):
+    """
+    positions      : (N,3)
+    angle_triplets : (N-2,3) integer indices (i,j,k) meaning angle i-j-k
+    """
+    a = positions[angle_triplets[:,0]]
+    b = positions[angle_triplets[:,1]]
+    c = positions[angle_triplets[:,2]]
 
-    cos_theta =  np.dot(u,v) / (nu * nv)
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-    theta = np.arccos(cos_theta)
+    u = a - b                 # (M,3)
+    v = c - b                 # (M,3)
 
-    return np.degrees(theta) if degrees else theta 
+    dot = np.sum(u * v, axis=1)
+    nu  = np.linalg.norm(u, axis=1)
+    nv  = np.linalg.norm(v, axis=1)
 
+    cos_theta = dot / (nu * nv)
+    theta = np.arccos(np.clip(cos_theta, -1.0, 1.0))
+
+    return np.degrees(theta) if degrees else theta
+
+def dihedral_angles(positions, angle_quadruples, degrees=True):
+    """
+    Vectorized signed dihedral (torsion) angles for quadruples (a,b,c,d).
+
+    positions        : (N,3)
+    angle_quadruples : (N-3,4) integer array of atom indices (a,b,c,d)
+
+    Returns:
+        (N-3,) dihedral angles in degrees.
+    """
+
+    a = positions[angle_quadruples[:,0]]
+    b = positions[angle_quadruples[:,1]]
+    c = positions[angle_quadruples[:,2]]
+    d = positions[angle_quadruples[:,3]]
+
+    # Bond vectors
+    b1 = b - a             # (M,3)
+    b2 = c - b             # (M,3)
+    b3 = d - c             # (M,3)
+
+    # Normals to the planes
+    n1 = np.cross(b1, b2)  # (M,3)
+    n2 = np.cross(b2, b3)  # (M,3)
+
+    # Norms
+    n1_norm = np.linalg.norm(n1, axis=1)
+    n2_norm = np.linalg.norm(n2, axis=1)
+    b2_norm = np.linalg.norm(b2, axis=1)
+
+    # Avoid division by zero (invalid dihedrals)
+    mask = (n1_norm < 1e-12) | (n2_norm < 1e-12) | (b2_norm < 1e-12)
+
+    # Unit normals
+    n1u = n1 / n1_norm[:,None]
+    n2u = n2 / n2_norm[:,None]
+    b2u = b2 / b2_norm[:,None]
+
+    # m = n1 × b2_unit
+    m = np.cross(n1u, b2u)
+
+    # Components for atan2
+    x = np.sum(n1u * n2u, axis=1)    # dot(n1u, n2u)
+    y = np.sum(m * n2u, axis=1)      # dot(m,   n2u)
+
+    phi = np.arctan2(y, x)           # signed dihedral
+
+    # Convert to degrees if needed
+    if degrees:
+        phi = np.degrees(phi)
+
+    # Assign NaN to invalid angles
+    phi[mask] = np.nan
+
+    return phi
 def dihedral(a, b, c, d, degrees=True):
     """
     Signed dihedral (torsion) angle for four points a-b-c-d, in degrees (default).
@@ -192,81 +279,84 @@ def dihedral(a, b, c, d, degrees=True):
     phi = np.arctan2(y, x)
     return np.degrees(phi) if degrees else phi
 
+#Below are functions for the various forces which arise from contact & non_conttact potentials
+#in addition to the external constant-velocity pulling introduced to unfold our protein
 
-def backbone_bond_angles(coords, degrees = True):
-
-    N = len(coords)
-    angles = np.full(N, np.nan)
-
-    for i in range(1, N-1):
-        angles[i] = angle_between_three(angles[i - 1], angles[i], angles[i+1])
-    return angles
-
-def backbone_dihedral_angles(coords, degrees=True):
-
-   N = len(coords)
-   dihs = np.full(N, np.nan)
-   for i in range(2, N-1):
-        dihs[i] = dihedral(coords[i-2], coords[i-1], coords[i], coords[i+1], degrees=degrees)
-    
-   return dihs 
-
-def F_bonds(positions, bonded_pairs, k_r, r_eq):
-    
+#Intramolecular forces between our amino acids, modeled as spring like
+#using hooke's law with experimentally determined 'spring constant' K_r
+def F_bonds(positions, k_r, r_eq):
     """
+    Harmonic bond forces for a linear polymer chain.
+
     positions : (N,3)
-    bonds     : (M,2) integer array of bonded pairs
-    k_r       : (M,) force constants
-    r_eq      : (M,) equilibrium bond lengths
+    k_r       : scalar   force 'spring-like' constant
+    r_eq      : (N-1,) or scalar  - equilibrium bond lengths
+
+    Returns:
+        F : (N,3) forces on each atom
     """
 
-    # Vectorized coordinate differences
-    rij = positions[bonded_pairs[:, 0]] - positions[bonded_pairs[:, 1]]  # (M,3)
+    # Bond vectors: r_{i+1} - r_i
+    rij = positions[1:] - positions[:-1]         # (N-1,3)
 
     # Bond lengths
-    r = np.linalg.norm(rij, axis=1)                         # (M,)
-    rhat = rij / r[:, None]                                 # (M,3)
+    r = np.linalg.norm(rij, axis=1)              # (N-1,)
+    rhat = rij / r[:, None]                      # normalized bond vectors
 
-    # Force magnitude
-    fmag = -2 * k_r * (r - r_eq)                            # (M,)
+    # Force magnitudes  (scalar stretch) 
+    # F = - d/dr [ k (r - r_eq)^2 ] = -2 k (r - r_eq)
+    fmag = -2.0 * k_r * (r - r_eq)               # (N-1,)
 
-    # Vector forces
-    forces = fmag[:, None] * rhat                           # (M,3)
+    # Vector form of bond forces
+    forces = fmag[:, None] * rhat                # (N-1,3)
 
-    # Scatter forces to atoms
-    F = np.zeros_like(positions)
-    np.add.at(F, bonded_pairs[:, 0],  forces)
-    np.add.at(F, bonded_pairs[:, 1], -forces)
+    # Scatter to amino acids
+    N = len(positions)
+    F = np.zeros((N,3))
+    np.add.at(F, np.arange(N-1),  forces)
+    np.add.at(F, np.arange(1, N), -forces)
+
     return F
 
+def F_bb_angles(positions, angle_triples, k_theta, theta_eq):
+    """
+    positions : (N,3)
+    angles    : (A,3) angle triples (i,j,k)
+    k_theta   : scalar or (A,) force constants
+    theta_eq  : scalar or (A,) equilibrium angle
+    """
 
+    i = angle_triples[:,0]
+    j = angle_triples[:,1]
+    k = angle_triples[:,2]
 
-    return
+    # Vectors from central atom j → i and j → k
+    rij = positions[i] - positions[j]     # (A,3)
+    rkj = positions[k] - positions[j]     # (A,3)
 
-def F_bb_angles():
-    # angles : (A,3) array of (i,j,k) defining angle i-j-k
-
-    i, j, k = angles[:,0], angles[:,1], angles[:,2]
-
-    rij = positions[i] - positions[j]
-    rkj = positions[k] - positions[j]
-
+    # Norms
     rij_norm = np.linalg.norm(rij, axis=1)
     rkj_norm = np.linalg.norm(rkj, axis=1)
 
+    # Unit vectors
     e_ij = rij / rij_norm[:,None]
     e_kj = rkj / rkj_norm[:,None]
 
+    # Angle cosine
     cos_theta = np.sum(e_ij * e_kj, axis=1)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+
+    # Angle
     theta = np.arccos(cos_theta)
 
-    # dU/dθ
-    dU_dtheta = 2 * k_theta * (theta - theta_eq)
+    # dU/dθ for harmonic angle potential
+    dU_dtheta = 2.0 * k_theta * (theta - theta_eq)
 
-    sin_theta = np.sqrt(1 - cos_theta**2)
+    # sin(theta) with stability fix
+    sin_theta = np.sqrt(1.0 - cos_theta**2)
     sin_theta = np.where(sin_theta < 1e-12, 1e-12, sin_theta)
 
-    # vector parts used by every MD code
+    # Standard MD angle force formulas (OpenMM/GROMACS/CHARMM)
     n_i = (cos_theta[:,None] * e_ij - e_kj) / (rij_norm * sin_theta)[:,None]
     n_k = (cos_theta[:,None] * e_kj - e_ij) / (rkj_norm * sin_theta)[:,None]
 
@@ -274,23 +364,104 @@ def F_bb_angles():
     Fk = -dU_dtheta[:,None] * n_k
     Fj = -(Fi + Fk)
 
+    # Scatter forces
     F = np.zeros_like(positions)
     np.add.at(F, i, Fi)
     np.add.at(F, j, Fj)
     np.add.at(F, k, Fk)
+
     return F
 
 
+def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
+    """
+    positions      : (N,3)
+    dihedral_quads : (D,4) array of (i,j,k,l)
+    k_phi          : scalar or (D,) force constant
+    phi_eq         : scalar or (D,) equilibrium dihedral angle
+    """
 
-    return 
+    i = dihedral_quads[:,0]
+    j = dihedral_quads[:,1]
+    k = dihedral_quads[:,2]
+    l = dihedral_quads[:,3]
 
-def F_dih_angles():
+    # Bond vectors
+    b1 = positions[i] - positions[j]        # (D,3)
+    b2 = positions[k] - positions[j]        # (D,3)
+    b3 = positions[l] - positions[k]        # (D,3)
 
-    return
+    # Normals to planes
+    n1 = np.cross(b1, b2)                   # (D,3)
+    n2 = np.cross(b2, b3)                   # (D,3)
 
-def F_pull():
+    n1_norm = np.linalg.norm(n1, axis=1)
+    n2_norm = np.linalg.norm(n2, axis=1)
+    b2_norm = np.linalg.norm(b2, axis=1)
 
-    return
+    # Avoid degeneracy
+    mask = (n1_norm < 1e-12) | (n2_norm < 1e-12) | (b2_norm < 1e-12)
+
+    n1u = n1 / n1_norm[:,None]
+    n2u = n2 / n2_norm[:,None]
+    b2u = b2 / b2_norm[:,None]
+
+    # Compute dihedral angle phi
+    m = np.cross(n1u, b2u)
+    x = np.sum(n1u * n2u, axis=1)
+    y = np.sum(m * n2u, axis=1)
+    phi = np.arctan2(y, x)
+
+    # dU/dφ for harmonic torsion
+    dU_dphi = 2.0 * k_phi * (phi - phi_eq)
+
+    # Needed geometric factors
+    inv_n1 = 1.0 / n1_norm
+    inv_n2 = 1.0 / n2_norm
+    inv_b2 = 1.0 / b2_norm
+
+    # Force components (gold-standard MD formula)
+    # These gradients come from ∂φ/∂ri etc.
+    t1 =  (n1 * inv_n1[:,None]) * inv_b2[:,None]
+    t2 =  (n2 * inv_n2[:,None]) * inv_b2[:,None]
+
+    Fi = -dU_dphi[:,None] * t1
+    Fl =  dU_dphi[:,None] * t2
+    Fj = -(Fi + np.cross(b2u, Fi) * b2_norm[:,None])
+    Fk = -(Fl + np.cross(b2u, Fl) * b2_norm[:,None])
+
+    # Scatter
+    F = np.zeros_like(positions)
+    np.add.at(F, i, Fi)
+    np.add.at(F, j, Fj)
+    np.add.at(F, k, Fk)
+    np.add.at(F, l, Fl)
+
+    return F
+
+
+def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
+    """
+    positions : (N,3)
+    t         : scalar time
+    idx       : index of pulled bead (usually last one, so just -1, but here for generalizability )(int)
+    k_trap    : trap stiffness (scalar)
+    r_trap0   : (3,) initial trap center position
+    v_pull    : (3,) pulling velocity vector
+    """
+
+    # Trap center at time t
+    r_trap = r_trap0 + v_pull * t          # (3,)
+
+    # Vector from trap center to bead
+    delta = positions[idx] - r_trap        # (3,)
+
+    # Spring force
+    F = np.zeros_like(positions)
+    F[idx] = -k_trap * delta               # (3,)
+
+    return F
+
 
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
 def non_contact_forces(positions, pairs, A, B, charges, epsilon):
