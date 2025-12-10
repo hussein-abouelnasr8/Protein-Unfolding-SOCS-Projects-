@@ -489,8 +489,8 @@ def total_force_contribution(
     F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
-
-def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
+          
+  def langevin_step(positions, velocities, masses, gamma, dt, kB, T, total_force, t):
     """
     positions : (N,3)
     velocities: (N,3)
@@ -499,7 +499,7 @@ def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
     dt        : scalar timestep
     kB        : Boltzmann constant
     T         : Temperature
-    force_fn  : function that computes total forces F(positions, t)
+    force_fn  : function that computes total forces F(positions, t) (N,3)
     t         : current time
 
     Returns updated (positions, velocities)
@@ -508,46 +508,52 @@ def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
     m = masses[:,None]       # (N,1)
     g = gamma[:,None]        # (N,1)
 
-    # --- 1. Compute deterministic forces at time t ---
-    F = force_fn(positions, t)   # (N,3)
+      # (N,3)
 
-    # --- 2. First noise term ---
-    sigma = np.sqrt(2 * g * kB * T * dt)   # (N,1)
+     # --- 2. First noise term ---
+    sigma = np.sqrt((2 * kB * T * dt) / g)  # (N,1)
     W1 = sigma * np.random.normal(size = positions.shape)
 
-    # --- 3. First half-step velocity update ---
-    v_half = velocities + dt/(2*m) * (F - g*velocities + W1)
+    #----- 3. Half-step position update ---
+    positions_new = positions + (dt/ g) * total_force + W1
 
-    # --- 4. Position update ---
-    positions_new = positions + dt * v_half
+    return positions_new
 
-    # --- 5. Forces at new positions ---
-    F_new = force_fn(positions_new, t + dt)
+# ----System initialization and Dynamics Setup----
+N = len(positions)
 
-    # --- 6. Second noise term ---
-    W2 = sigma * np.random.normal(size = positions.shape)
+angle_triple_indices = angle_triplets(N)
+angle_quadruple_indices = angle_quadruples(N)
 
-    # --- 7. Second half velocity update ---
-    velocities_new = v_half + dt/(2*m) * (F_new - g*v_half + W2)
-
-    return positions_new, velocities_new
-    
-#Initialize system and iterate dynamics
-#extract & set up masses
-#initializa velocities
-#set up parameters: gamma, T, r_eq, K_r, k_theta, ...
-#choose dt that is both simulation & experiment appropriate
+#model parameters
+radius = 3e-10 # bead radii 
+eta = 3.0e-3
+gamma = 6* np.pi * eta * radius
+# Change gamma to N,1 vector
+gammas = np.full(N, gamma) 
+gammas = gammas[:,None]
+dt = 10e-10
+kB = 1.38e-23
+T = 300
 
 time_steps = tot_duration/dt
 time = 0
+idx_pull = -1 #pulling last bead in amino acid chain
+r_trap0 = positions[idx_pull,:] 
+
 for i in range(time_steps):
-  F = total_force_contribution()
-  positions, velocities = langevin_step(F,...)
-  planar_angles = planar_bond_angles()
-  dihedral_angles = dihedral_angles()
+  
+  F = total_force_contribution(positions, t,
+        idx_pull, k_trap, r_trap0, v_pull,
+        angle_triple_indices, k_theta, theta_eq,
+        angle_quadruple_indices, k_phi, phi_eq,
+        k_r, r_eq)
+  positions = langevin_step(positions, gamma, dt, kB, T, F)
 
-  time += dt
+  planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
+  dihedral_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
 
+  time += dt    
 
         
         
