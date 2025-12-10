@@ -249,35 +249,6 @@ def dihedral_angles(positions, angle_quadruples, degrees=True):
     phi[mask] = np.nan
 
     return phi
-def dihedral(a, b, c, d, degrees=True):
-    """
-    Signed dihedral (torsion) angle for four points a-b-c-d, in degrees (default).
-    Uses stable atan2-based formulation.
-    (Find paper for dihedral angle calculation)
-    """
-    b1 = b - a
-    b2 = c - b
-    b3 = d - c
-
-    # normals to planes
-    n1 = np.cross(b1, b2)
-    n2 = np.cross(b2, b3)
-
-    n1_norm = np.linalg.norm(n1)
-    n2_norm = np.linalg.norm(n2)
-    b2_norm = np.linalg.norm(b2)
-    if n1_norm < 1e-12 or n2_norm < 1e-12 or b2_norm < 1e-12:
-        return np.nan
-
-    n1u = n1 / n1_norm
-    n2u = n2 / n2_norm
-    b2u = b2 / b2_norm
-
-    m = np.cross(n1u, b2u)
-    x = np.dot(n1u, n2u)
-    y = np.dot(m, n2u)
-    phi = np.arctan2(y, x)
-    return np.degrees(phi) if degrees else phi
 
 #Below are functions for the various forces which arise from contact & non_conttact potentials
 #in addition to the external constant-velocity pulling introduced to unfold our protein
@@ -439,7 +410,8 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
 
     return F
 
-
+#External pulling force (Optical Tweezer) We can choose to pull in just one direction,
+#i.e. setting y & z velocity components to zero & choosing an x-only velocity value
 def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
     """
     positions : (N,3)
@@ -493,14 +465,88 @@ def non_contact_forces(positions, pairs, A, B, charges, epsilon):
         return F
 
   
-
-
-def run_langevin_dynamics(masses, F_pull):
-
-    contact_potentials = contact_potentials(coords, bb_angles, dih_angles)
-     
     
+def total_force_contribution(
+        positions, t,
+        idx_pull, k_trap, r_trap0, v_pull,
+        planar_triples, k_theta, theta_eq,
+        dihedral_quads, k_phi, phi_eq,
+        k_r, r_eq):
+    """
+    Compute total force at time t from:
+    - bonds
+    - angle bending
+    - dihedral torsion
+    - optical trap pulling
 
+    All force components return an array of shape (N, 3)
+    matching 'positions'.
+    """
+
+    F  = F_bonds(positions, k_r, r_eq)
+    F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
+    F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
+    F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
+
+    return F
+
+def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
+    """
+    positions : (N,3)
+    velocities: (N,3)
+    masses    : (N,)
+    gamma     : (N,)
+    dt        : scalar timestep
+    kB        : Boltzmann constant
+    T         : Temperature
+    force_fn  : function that computes total forces F(positions, t)
+    t         : current time
+
+    Returns updated (positions, velocities)
+    """
+
+    m = masses[:,None]       # (N,1)
+    g = gamma[:,None]        # (N,1)
+
+    # --- 1. Compute deterministic forces at time t ---
+    F = force_fn(positions, t)   # (N,3)
+
+    # --- 2. First noise term ---
+    sigma = np.sqrt(2 * g * kB * T * dt)   # (N,1)
+    W1 = sigma * np.random.normal(size = positions.shape)
+
+    # --- 3. First half-step velocity update ---
+    v_half = velocities + dt/(2*m) * (F - g*velocities + W1)
+
+    # --- 4. Position update ---
+    positions_new = positions + dt * v_half
+
+    # --- 5. Forces at new positions ---
+    F_new = force_fn(positions_new, t + dt)
+
+    # --- 6. Second noise term ---
+    W2 = sigma * np.random.normal(size = positions.shape)
+
+    # --- 7. Second half velocity update ---
+    velocities_new = v_half + dt/(2*m) * (F_new - g*v_half + W2)
+
+    return positions_new, velocities_new
+    
+#Initializae system and iterate dynamics
+#extract & set up masses
+#initializa velocities
+#set up parameters: gamma, T, r_eq, K_r, k_theta, ...
+#choose dt that is both simulation & experiment appropriate
+
+time_steps = tot_duration/dt
+time = 0
+for i in range(time_steps):
+  F = total_force_contribution()
+  positions, velocities = langevin_step(F,...)
+  planar_angles = planar_bond_angles()
+  dihedral_angles = dihedral_angles()
+
+  time += dt
 
 
         
