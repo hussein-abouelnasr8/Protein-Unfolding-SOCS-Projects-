@@ -331,7 +331,7 @@ def F_bonds(positions, k_r, r_eq):
         r_eq = np.full_like(r, r_eq)
 
     # Force magnitude
-    fmag = -2.0 * k_r * (r - r_eq)         # (N-1,)
+    fmag = k_r * (r - r_eq)         # (N-1,)
 
     forces = fmag[:,None] * rhat           # (N-1,3)
 
@@ -376,7 +376,7 @@ def F_bb_angles(positions, angle_triples, k_theta, theta_eq):
     theta = np.arccos(cos_theta)
 
     # dU/dθ for harmonic angle potential
-    dU_dtheta = 2.0 * k_theta * (theta - theta_eq)
+    dU_dtheta = k_theta * (theta - theta_eq)
 
     # sin(theta) with stability fix
     sin_theta = np.sqrt(1.0 - cos_theta**2)
@@ -599,9 +599,9 @@ r_trap0 = 2
 v_pull = 1
 
 #stiffness factors
-k_r = 60
+k_r = 20
 k_phi = 2
-k_theta = 0.01
+k_theta = 0.05
 k_trap = 1
 
 tot_duration = 5*10**-4
