@@ -577,7 +577,9 @@ def langevin_step(positions, gamma, dt, kB, T, total_force):
     W1 = sigma * np.random.normal(size = positions.shape)
 
     #----- 3. Half-step position update ---
-    positions_new = positions + (dt/ g) * total_force + W1
+    ositions_new = positions[:N-1, :] + (dt/ g) * total_force[:N-1, :] + W1[:N-1, :]
+    
+    np.append(positions_new, positions[-1, :]+F_pull(t, dt, idx, x_min, x_max))
 
     return positions_new
 
