@@ -439,7 +439,7 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
     phi = np.arctan2(y, x)
 
     # dU/dφ for harmonic torsion
-    dU_dphi = 2.0 * k_phi * (phi - phi_eq)
+    dU_dphi = k_phi * (phi - phi_eq)
 
     # Needed geometric factors
     inv_n1 = 1.0 / n1_norm
