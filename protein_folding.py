@@ -592,8 +592,8 @@ kB = 1.38e-23
 T = 300
 
 #equilibrium values
-theta_eq = 110
-phi_eq = 130
+theta_eq = 110*(np.pi/180)
+phi_eq = 130*(np.pi/180)
 r_eq = 3.8
 r_trap0 = 2
 v_pull = 1
