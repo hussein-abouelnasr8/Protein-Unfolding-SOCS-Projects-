@@ -9,6 +9,10 @@ structure = parser.get_structure("protein", "1NCT.pdb")
 # store Cα atoms in a simple dict: (chain, resseq) → np.array([x,y,z])
 ca_positions = {}
 
+residue_names = []
+
+
+
 #hydrophobicity constants for applicable amino acids
 hydroph_m = {'ARG': 0.3,
              'MET': 0.4,
@@ -55,10 +59,13 @@ print(ca_positions)
 keys = sorted(ca_positions.keys())
 positions = np.array([ca_positions[k] for k in keys])
 
+for chain_id, resseq in keys:
+    residue = structure[0][chain_id][resseq]   # Model 0
+    residue_names.append(residue.resname)
+
 def hydro_forces(
         positions,
         keys,
-        masses,
         residue_names,
         hydroph_m,
         radius,
@@ -99,7 +106,6 @@ def hydro_forces(
     diff = positions[:, None, :] - positions[None, :, :]
     dist_matrix = np.linalg.norm(diff, axis=2)
 
-    contacts = []
 
     for i in range(N):
         for j in range(i+1, N):
@@ -130,7 +136,7 @@ def hydro_forces(
 
             # ===== 5. INCLUDE only pairs within cutoff =====
             if d < cutoff:
-                contacts.append((keys[i], keys[j], d))
+                
 
                 # compute force
                 rij = diff[i, j]
@@ -141,7 +147,7 @@ def hydro_forces(
                 forces[i] += fij 
                 forces[j] -= fij
 
-    return contacts, forces
+    return forces
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -526,7 +532,7 @@ def total_force_contribution(
         idx_pull, k_trap, r_trap0, v_pull,
         planar_triples, k_theta, theta_eq,
         dihedral_quads, k_phi, phi_eq,
-        k_r, r_eq):
+        k_r, r_eq, keys, hydroph_m, radius, residue_names):
     """
     Compute total force at time t from:
     - bonds
@@ -541,6 +547,7 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
+    F += hydro_forces(positions, keys, residue_names, hydroph_m, radius)
     #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
@@ -581,13 +588,13 @@ angle_triple_indices = angle_triplets(N)
 angle_quadruple_indices = angle_quadruples(N)
 
 #model parameters
-radius = 2 # bead radii 
-eta = 3.0e-3
+radius = 0.2 # bead radii 
+eta = 6.9e6
 gamma = 6* np.pi * eta * radius
 # Change gamma to N,1 vector
 gammas = np.full(N, gamma) 
 #gammas = gammas[:,None]
-dt = 10e-10
+dt = 100
 kB = 1.38e-23
 T = 300
 
@@ -604,13 +611,15 @@ k_phi = 0.02
 k_theta = 0.1
 k_trap = 1
 
-tot_duration = 5*10**-4
+tot_duration = 10**7
 time_steps = tot_duration/dt
 time = 0
 idx_pull = -1 #pulling last bead in amino acid chain
 r_trap0 = positions[idx_pull,:] 
 
 initial_positions = positions.copy()
+time_list = []
+position_diff_list = []
 
 for t in range(int(time_steps)):
   
@@ -618,15 +627,24 @@ for t in range(int(time_steps)):
         idx_pull, k_trap, r_trap0, v_pull,
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
-        k_r, r_eq)
+        k_r, r_eq, keys, hydroph_m, radius, residue_names)
   positions = langevin_step(positions, gammas, dt, kB, T, F)
 
   planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
   di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
-  
   time += dt
-  print(time)
+  if time%1000 == 0:
+      
+      position_diff = initial_positions - positions
+      position_diff_list.append(np.linalg.norm(position_diff))
+      
+      
+      time_list.append(time)
+  if time%10000 == 0:
+      print(time)
 
+print(F)
+plt.plot(time_list, position_diff_list)
 position_diff = initial_positions - positions
 print(np.linalg.norm(position_diff))
 plot_protein_3d_interactive(positions, keys=None)
