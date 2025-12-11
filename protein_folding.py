@@ -53,7 +53,7 @@ print(ca_positions)
 
 #convert dict with Ca positions to pure Numpy coordinate array
 keys = sorted(ca_positions.keys())
-coords = np.array([ca_positions[k] for k in keys])
+positions = np.array([ca_positions[k] for k in keys])
 
 def hydro_forces(
         positions,
@@ -61,8 +61,7 @@ def hydro_forces(
         masses,
         residue_names,
         hydroph_m,
-        cutoff=5.0,
-        min_exclusion=2.0
+        radius,
     ):
     """
     Find non-bonded, non-adjacent contacts filtered by hydrophobicity,
@@ -93,7 +92,9 @@ def hydro_forces(
 
     N = len(positions)
     forces = np.zeros_like(positions)
-
+    
+    cutoff= np.sqrt(4.5)+2*radius,
+    min_exclusion= np.sqrt(3.7)+2*radius
     # Distance matrix
     diff = positions[:, None, :] - positions[None, :, :]
     dist_matrix = np.linalg.norm(diff, axis=2)
@@ -134,7 +135,7 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 2 *1.25 *(m_i + m_j)*d * 9.21*(10**-11) #Conversion to 10**-10 N
+                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 9.21*(10**-11) #Conversion to 10**-10 N
 
                 fij = fmag * rhat
                 forces[i] += fij 
@@ -146,13 +147,13 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 
-def plot_protein_3d_interactive(coords, keys=None):
+def plot_protein_3d_interactive(positions, keys=None):
     """
     Plot a protein Cα trace in 3D using Plotly (interactive rotation).
     
     Parameters
     ----------
-    coords : (N,3) numpy array
+    positions : (N,3) numpy array
         Cα coordinates
     keys : list of tuples (chain, resseq)
         Optional labels for residues
@@ -160,9 +161,9 @@ def plot_protein_3d_interactive(coords, keys=None):
 
     # --- Backbone lines ---
     line_trace = go.Scatter3d(
-        x=coords[:,0],
-        y=coords[:,1],
-        z=coords[:,2],
+        x=positions[:,0],
+        y=positions[:,1],
+        z=positions[:,2],
         mode='lines',
         line=dict(color='black', width=4),
         name='Backbone'
@@ -170,9 +171,9 @@ def plot_protein_3d_interactive(coords, keys=None):
 
     # --- Residue points ---
     points_trace = go.Scatter3d(
-        x=coords[:,0],
-        y=coords[:,1],
-        z=coords[:,2],
+        x=positions[:,0],
+        y=positions[:,1],
+        z=positions[:,2],
         mode='markers+text' if keys is not None else 'markers',
         marker=dict(size=4, color='red'),
         text=[f"{c}{r}" for c,r in keys] if keys is not None else None,
@@ -192,17 +193,15 @@ def plot_protein_3d_interactive(coords, keys=None):
     )
     fig.show(renderer="browser")
 
-
-
 '''turns coordinates into pairwise bond vectors, with magnitude
 rij between residue i & consecutive residue j of size N-1'''
-def bond_vectors(coords):
-    return coords[1:, :] - coords[:-1, :]
+def bond_vectors(positions):
+    return positions[1:, :] - positions[:-1, :]
 """ calculates euclidean norm of each bond and returns magnitudes,
   i.e. the bond lengths
 """
-def bond_lengths(coords):
-    rij = bond_vectors(coords)
+def bond_lengths(positions):
+    rij = bond_vectors(positions)
     return np.linalg.norm(rij, axis = 1)
 #sets up arra of the angle triple indices, i.e. [(0,1,2),(1,2,3),(2,3,4),...]
 #allows for vectorization of code in functions below
@@ -311,36 +310,39 @@ def dihedral_angles(positions, angle_quadruples, degrees=True):
 def F_bonds(positions, k_r, r_eq):
     """
     Harmonic bond forces for a linear polymer chain.
-
-    positions : (N,3)
-    k_r       : scalar   force 'spring-like' constant
-    r_eq      : (N-1,) or scalar  - equilibrium bond lengths
-
-    Returns:
-        F : (N,3) forces on each atom
     """
+    N = len(positions)
 
-    # Bond vectors: r_{i+1} - r_i
-    rij = positions[1:] - positions[:-1]         # (N-1,3)
+    # Bond vectors
+    rij = positions[1:] - positions[:-1]   # (N-1,3)
 
     # Bond lengths
-    r = np.linalg.norm(rij, axis=1)              # (N-1,)
-    rhat = rij / r[:, None]                      # normalized bond vectors
+    r = np.linalg.norm(rij, axis=1)        # (N-1,)
 
-    # Force magnitudes  (scalar stretch) 
-    # F = - d/dr [ k (r - r_eq)^2 ] = -2 k (r - r_eq)
-    fmag = -2.0 * k_r * (r - r_eq)               # (N-1,)
+    # Protect against zero-length bonds
+    eps = 1e-12
+    r_safe = np.maximum(r, eps)
 
-    # Vector form of bond forces
-    forces = fmag[:, None] * rhat                # (N-1,3)
+    rhat = rij / r_safe[:,None]            # (N-1,3)
 
-    # Scatter to amino acids
-    N = len(positions)
+    # Broadcast r_eq
+    r_eq = np.asarray(r_eq)
+    if r_eq.ndim == 0:
+        r_eq = np.full_like(r, r_eq)
+
+    # Force magnitude
+    fmag = -2.0 * k_r * (r - r_eq)         # (N-1,)
+
+    forces = fmag[:,None] * rhat           # (N-1,3)
+
+    # Accumulate to atom forces
     F = np.zeros((N,3))
-    np.add.at(F, np.arange(N-1),  forces)
-    np.add.at(F, np.arange(1, N), -forces)
+    F[:N-1] +=  forces
+    F[1:   ] += -forces
 
     return F
+
+
 
 def F_bb_angles(positions, angle_triples, k_theta, theta_eq):
     """
@@ -491,31 +493,31 @@ def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
 def non_contact_forces(positions, pairs, A, B, charges, epsilon):
 
-  """
+    """
     pairs : (P,2) atom pairs to evaluate
     A,B   : LJ parameters per pair
     charges: array of charges
     """
-  i, j = pairs[:,0], pairs[:,1]
+    i, j = pairs[:,0], pairs[:,1]
 
-        rij = positions[i] - positions[j]
-        r = np.linalg.norm(rij, axis=1)
-        rhat = rij / r[:,None]
-    
-        # LJ + Coulomb derivatives
-        dU_dr = (
-            -12*A / r**13
-            + 6*B / r**7
-            - (charges[i] * charges[j]) / (epsilon * r**2)
-        )
-    
-        fmag = -dU_dr
-        fij = fmag[:,None] * rhat
-    
-        F = np.zeros_like(positions)
-        np.add.at(F, i,  fij)
-        np.add.at(F, j, -fij)
-        return F
+    rij = positions[i] - positions[j]
+    r = np.linalg.norm(rij, axis=1)
+    rhat = rij / r[:,None]
+
+    # LJ + Coulomb derivatives
+    dU_dr = (
+        -12*A / r**13
+        + 6*B / r**7
+        - (charges[i] * charges[j]) / (epsilon * r**2)
+    )
+
+    fmag = -dU_dr
+    fij = fmag[:,None] * rhat
+
+    F = np.zeros_like(positions)
+    np.add.at(F, i,  fij)
+    np.add.at(F, j, -fij)
+    return F
 
   
     
@@ -539,11 +541,11 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
-    F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
+    #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
-
-def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
+          
+def langevin_step(positions, gamma, dt, kB, T, total_force):
     """
     positions : (N,3)
     velocities: (N,3)
@@ -552,55 +554,82 @@ def langevin_step(positions, velocities, masses, gamma, dt, kB, T, force_fn, t):
     dt        : scalar timestep
     kB        : Boltzmann constant
     T         : Temperature
-    force_fn  : function that computes total forces F(positions, t)
+    force_fn  : function that computes total forces F(positions, t) (N,3)
     t         : current time
 
     Returns updated (positions, velocities)
     """
 
-    m = masses[:,None]       # (N,1)
+    #m = masses[:,None]       # (N,1)
     g = gamma[:,None]        # (N,1)
 
-    # --- 1. Compute deterministic forces at time t ---
-    F = force_fn(positions, t)   # (N,3)
+      # (N,3)
 
-    # --- 2. First noise term ---
-    sigma = np.sqrt(2 * g * kB * T * dt)   # (N,1)
+     # --- 2. First noise term ---
+    sigma = np.sqrt((2 * kB * T * dt) / g)  # (N,1)
     W1 = sigma * np.random.normal(size = positions.shape)
 
-    # --- 3. First half-step velocity update ---
-    v_half = velocities + dt/(2*m) * (F - g*velocities + W1)
+    #----- 3. Half-step position update ---
+    positions_new = positions + (dt/ g) * total_force + W1
 
-    # --- 4. Position update ---
-    positions_new = positions + dt * v_half
+    return positions_new
 
-    # --- 5. Forces at new positions ---
-    F_new = force_fn(positions_new, t + dt)
+# ----System initialization and Dynamics Setup----
+N = len(positions)
 
-    # --- 6. Second noise term ---
-    W2 = sigma * np.random.normal(size = positions.shape)
+angle_triple_indices = angle_triplets(N)
+angle_quadruple_indices = angle_quadruples(N)
 
-    # --- 7. Second half velocity update ---
-    velocities_new = v_half + dt/(2*m) * (F_new - g*v_half + W2)
+#model parameters
+radius = 2 # bead radii 
+eta = 3.0e-3
+gamma = 6* np.pi * eta * radius
+# Change gamma to N,1 vector
+gammas = np.full(N, gamma) 
+#gammas = gammas[:,None]
+dt = 10e-10
+kB = 1.38e-23
+T = 300
 
-    return positions_new, velocities_new
-    
-#Initialize system and iterate dynamics
-#extract & set up masses
-#initializa velocities
-#set up parameters: gamma, T, r_eq, K_r, k_theta, ...
-#choose dt that is both simulation & experiment appropriate
+#equilibrium values
+theta_eq = 110
+phi_eq = 130
+r_eq = 3.8
+r_trap0 = 2
+v_pull = 1
 
+#stiffness factors
+k_r = 60
+k_phi = 2
+k_theta = 0.01
+k_trap = 1
+
+tot_duration = 5*10**-4
 time_steps = tot_duration/dt
 time = 0
-for i in range(time_steps):
-  F = total_force_contribution()
-  positions, velocities = langevin_step(F,...)
-  planar_angles = planar_bond_angles()
-  dihedral_angles = dihedral_angles()
+idx_pull = -1 #pulling last bead in amino acid chain
+r_trap0 = positions[idx_pull,:] 
 
+initial_positions = positions.copy()
+
+for t in range(int(time_steps)):
+  
+  F = total_force_contribution(positions, t,
+        idx_pull, k_trap, r_trap0, v_pull,
+        angle_triple_indices, k_theta, theta_eq,
+        angle_quadruple_indices, k_phi, phi_eq,
+        k_r, r_eq)
+  positions = langevin_step(positions, gammas, dt, kB, T, F)
+
+  planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
+  di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
+  
   time += dt
+  print(time)
 
+position_diff = initial_positions - positions
+print(np.linalg.norm(position_diff))
+plot_protein_3d_interactive(positions, keys=None)
 
         
         
