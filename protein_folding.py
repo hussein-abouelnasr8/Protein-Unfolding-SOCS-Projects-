@@ -473,27 +473,24 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
 
 #External pulling force (Optical Tweezer) We can choose to pull in just one direction,
 #i.e. setting y & z velocity components to zero & choosing an x-only velocity value
-def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
+def F_pull(t, dt, v_pull, x_min, x_max):
     """
     positions : (N,3)
-    t         : scalar time
-    idx       : index of pulled bead (usually last one, so just -1, but here for generalizability )(int)
-    k_trap    : trap stiffness (scalar)
-    r_trap0   : (3,) initial trap center position
+    t         : scalar time (current time)
+    x_min   : (3,) final bead being pulled
     v_pull    : (3,) pulling velocity vector
     """
+    Tf = (x_max - x_min)/v_pull
+    T_tot = 2 * Tf
 
-    # Trap center at time t
-    r_trap = r_trap0 + v_pull * t          # (3,)
+    tau = np.mod(t,T_tot)
 
-    # Vector from trap center to bead
-    delta = positions[idx] - r_trap        # (3,)
-
-    # Spring force
-    F = np.zeros_like(positions)
-    F[idx] = -k_trap * delta               # (3,)
-
-    return F
+    if tau < Tf:
+        x_delta = x_min + v_pull * dt
+    else:
+        x_delta = x_max - v_pull * (dt - Tf)
+    
+    return x_delta
 
 
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
