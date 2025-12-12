@@ -25,6 +25,13 @@ hydroph_m = {'ARG': 0.3,
              'TYR': 1.1,
              'PHE': 1.6,
              'TRP': 1.6,}
+
+charge_map = {
+        'ASP': -1,
+        'GLU': -1,
+        'LYS': +1,
+        'ARG': +1
+    }
 #maps 3 letter aa codes to 1 letter
 aa3_to_aa1 = {
     "ALA": "A",
@@ -59,55 +66,48 @@ print(ca_positions)
 #convert dict with Ca positions to pure Numpy coordinate array
 keys = sorted(ca_positions.keys())
 positions = np.array([ca_positions[k] for k in keys])
+diff_first = positions[0]
+positions -= diff_first #Shifts entire protein so first aa is at 0,0,0 and relative distances are same
 
 for chain_id, resseq in keys:
     residue = structure[0][chain_id][resseq]   # Model 0
     residue_names.append(residue.resname)
 
-def hydro_forces(
+def nb_forces(
         positions,
         keys,
         residue_names,
         hydroph_m,
         radius,
         N_A,
+        charge_map,
     ):
     """
-    Find non-bonded, non-adjacent contacts filtered by hydrophobicity,
-    and compute forces using hydrophobicity 'm' values:
+    Compute both hydrophobic and electrostatic forces.
+    
+    Hydrophobic force:
+        F_h = 1.25 * (m_i + m_j) * (2*d - 2*radius) * (5.52 / N_A)
 
-        F = 2*(m_i + m_j)/r^3 * rhat
+    Electrostatic force:
+        F_e = 1.5 * q_i * q_j * (2*d - 2*radius) * (5.52 / N_A)
 
-    EXCLUDES:
-      • Adjacent residues
-      • Too-close residues (d < min_exclusion)
-      • Pairs where BOTH hydrophobicity m-values = 0
-
-    Parameters
-    ----------
-    positions : (N,3) array
-    keys : list of (chain, resseq)
-    masses : (N,) array (kept but not used for hydrophobic forces)
-    residue_names : list of 3-letter residue names aligned to positions
-    hydroph_m : dict mapping 3-letter codes → m values
-    cutoff : float (upper cutoff)
-    min_exclusion : float (lower cutoff)
-
-    Returns
-    -------
-    contacts : list of ((chain_i, resseq_i), (chain_j, resseq_j), distance)
-    forces   : (N,3) accumulated force vectors
+    Charges:
+        ASP = -1
+        GLU = -1
+        LYS = +1
+        ARG = +1
+        others = 0
     """
-
     N = len(positions)
     forces = np.zeros_like(positions)
-    
-    cutoff= np.sqrt(0.45)+2*radius
-    min_exclusion= np.sqrt(0.37)+2*radius
-    # Distance matrix
+
+    # geometric cutoffs
+    cutoff = np.sqrt(0.45) + 2 * radius
+    min_exclusion = np.sqrt(0.37) + 2 * radius
+
+    # distance matrix
     diff = positions[:, None, :] - positions[None, :, :]
     dist_matrix = np.linalg.norm(diff, axis=2)
-
 
     for i in range(N):
         for j in range(i+1, N):
@@ -115,38 +115,47 @@ def hydro_forces(
             chain_i, res_i = keys[i]
             chain_j, res_j = keys[j]
 
-            # ===== 1. EXCLUDE adjacent residues =====
+            # skip adjacent residues
             if chain_i == chain_j and abs(res_i - res_j) == 1:
                 continue
 
-            # ===== 2. Hydrophobicity lookup =====
             aa_i = residue_names[i]
             aa_j = residue_names[j]
 
+            # hydrophobicities
             m_i = hydroph_m.get(aa_i, 0.0)
             m_j = hydroph_m.get(aa_j, 0.0)
 
-            # ===== 3. EXCLUDE pairs where both hydrophobicities are zero =====
-            if m_i == 0.0 and m_j == 0.0:
-                continue
+            # charges
+            q_i = charge_map.get(aa_i, 0)
+            q_j = charge_map.get(aa_j, 0)
 
             d = dist_matrix[i, j]
 
-            # ===== 4. EXCLUDE pairs that are too close =====
+            # too close → skip
             if d < min_exclusion:
                 continue
 
-            # ===== 5. INCLUDE only pairs within cutoff =====
             if d < cutoff:
-                
 
-                # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 5.52/N_A #Conversion to 10**-10 N
+
+                # shared distance factor
+                dist_term = (2*d - 2*radius)
+
+                # --- Hydrophobic contribution ---
+                F_h = 1.25 * (m_i + m_j) * dist_term * (5.52 / N_A)
+
+                # --- Electrostatic contribution ---
+                F_e = 1.5 * q_i * q_j * dist_term * (5.52 / N_A)
+
+                # total magnitude
+                fmag = F_h + F_e
 
                 fij = fmag * rhat
-                forces[i] += fij 
+
+                forces[i] += fij
                 forces[j] -= fij
 
     return forces
@@ -262,10 +271,10 @@ def get_contour_length(positions):
 
     return contour_length
     
-def pulling_time(positions, v_pull):
+def pulling_time(positions, v_pull, dt):
     contour_length = get_contour_length(positions)
-    Tf = contour_length/v_pull #forward period, i.e. one forward pull cycle
-    Tf *= 1000 #converting time from ps to ns
+    Tf = np.abs(10*contour_length/v_pull) #forward period, i.e. one forward pull cycle
+    Tf = Tf
     return Tf
 
 def v_pull_sawtooth(t, Tf, v_pull):
@@ -277,7 +286,7 @@ def v_pull_sawtooth(t, Tf, v_pull):
     x_max     :  (3,) user determined multiple of protein contour length
     """
     T_tot = 2 * Tf
-    tau = np.mod(t,T_tot)
+    tau = t%T_tot
 
     if tau < Tf:
         return v_pull
@@ -506,24 +515,6 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
 
 #External pulling force (Optical Tweezer) We can choose to pull in just one direction,
 #i.e. setting y & z velocity components to zero & choosing an x-only velocity value
-def F_pull(t, dt, v_pull, x_min, x_max):
-    """
-    positions : (N,3)
-    t         : scalar time (current time)
-    x_min   : (3,) final bead being pulled
-    v_pull    : (3,) pulling velocity vector
-    """
-    Tf = (x_max - x_min)/v_pull
-    T_tot = 2 * Tf
-
-    tau = np.mod(t,T_tot)
-
-    if tau < Tf:
-        x_delta = x_min + v_pull * dt
-    else:
-        x_delta = x_max - v_pull * (dt - Tf)
-    
-    return x_delta
 
 
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
@@ -558,7 +549,7 @@ def non_contact_forces(positions, pairs, A, B, charges, epsilon):
   
     
 def total_force_contribution(
-        positions, t,
+        positions,
         idx_pull, k_trap, r_trap0, v_pull,
         planar_triples, k_theta, theta_eq,
         dihedral_quads, k_phi, phi_eq,
@@ -577,7 +568,7 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
-    #F += hydro_forces(positions, keys, residue_names, hydroph_m, radius, N_A)
+    F += nb_forces(positions, keys, residue_names, hydroph_m, radius, N_A, charge_map)
     #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
@@ -623,7 +614,7 @@ gamma = 5
 # Change gamma to N,1 vector
 gammas = np.full(N, gamma) 
 #gammas = gammas[:,None]
-dt = 0.2
+dt = 0.1
 kB = 0.0083
 T = 300
 N_a = 6e23
@@ -633,7 +624,7 @@ theta_eq = 110*(np.pi/180)
 phi_eq = 130*(np.pi/180)
 r_eq = 0.38
 r_trap0 = 2
-v_pull = 1
+
 
 #stiffness factors
 k_r = 500
@@ -648,7 +639,7 @@ idx_pull = -1 #pulling last bead in amino acid chain
 r_trap0 = positions[idx_pull,:] 
 
 initial_positions = positions.copy()
-print(initial_positions)
+#print(initial_positions)
 time_list = []
 position_diff_list = []
 
@@ -703,7 +694,13 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull, time, 
 
     # Step B (half kick) : v += 0.5*dt * F / m  # kJ/(molecule·nm)
     # acceleration a = F * inv_m -> units nm/ps^2
+    
+    
+    #comment out if code doesn't work
+    v_pull_st = v_pull_sawtooth(time, pull_period, v_pull)
+    
     velocities = velocities + 0.5 * dt * (F * inv_m[:,None])
+    velocities[-1] = np.array([v_pull_st, 0, 0]).reshape(1, 3)
 
     # Step A (half drift): x += 0.5*dt * v
     positions = positions + 0.5 * dt * velocities
@@ -721,43 +718,44 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull, time, 
     xi = np.random.normal(size=(N,3))
     velocities = (c * velocities) + (sigma[:,None] * xi)
     
+
+    
     ###IF PULL UNCOMMENT BELOW
-    velocities[-1] = np.array([v_pull, 0, 0]).reshape(1, 3)
+    velocities[-1] = np.array([v_pull_st, 0, 0]).reshape(1, 3)
 
     # Step A (half drift): x += 0.5*dt * v
     positions = positions + 0.5 * dt * velocities
 
     # Step B (half kick) with updated forces
-    F = total_force_contribution(positions, t,
+    F = total_force_contribution(positions,
          idx_pull, k_trap, r_trap0, v_pull,
          angle_triple_indices, k_theta, theta_eq,
          angle_quadruple_indices, k_phi, phi_eq,
          k_r, r_eq, keys, hydroph_m, radius, residue_names)
     velocities = velocities + 0.5 * dt * (F * inv_m[:,None])
-   
-    #comment out if code doesn't work
-    V_pull_st = v_pull_sawtooth(time, pull_period, v_pull)
+
 
     ###IF PULL UNCOMMENT BELOW
-    velocities[-1] = np.array([v_pull, 0, 0]).reshape(1, 3)
+    velocities[-1] = np.array([v_pull_st, 0, 0]).reshape(1, 3)
     positions[0] = initial_positions[0]
 
     return positions, velocities
 
 
 
-v_pull = 1 
+v_pull = -0.5
 velocities = np.zeros_like(positions)
 
 #contour length, pulling period, and velocity set up
 contour_length = get_contour_length(positions)
-pull_period = pulling_time(positions, v_pull)
+print(contour_length)
+pull_period = pulling_time(positions, v_pull, dt)
 print(pull_period)
 
-
+print(dt)
 tot_duration = 2*pull_period
 time_steps = tot_duration/dt
-
+print(time_steps)
 #Live visualization plot
 plt.ion()
 fig = plt.figure(figsize=(10, 8))
@@ -773,9 +771,10 @@ ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
 ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
 
-for t in range(int(time_steps)):
-  
-  F = total_force_contribution(positions, t,
+
+for time_step in range(int(time_steps)):
+
+  F = total_force_contribution(positions,
         idx_pull, k_trap, r_trap0, v_pull,
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
@@ -794,27 +793,28 @@ for t in range(int(time_steps)):
       time_list.append(time)
   if int(time)%10 == 0:
       print(time)
+      
+  if time_step % 100 == 0:  # update plot every 10 steps
+          # Update backbone line
+          line.set_data(positions[:,0], positions[:,1])
+          line.set_3d_properties(positions[:,2])
 
-print(F)
-plt.plot(time_list, position_diff_list)
-position_diff = initial_positions - positions
-print(np.mean(np.linalg.norm(position_diff, axis=0)))
-plot_protein_3d_interactive(positions, keys=None)
+          # Update points
+          points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
 
-if t % 100 == 0:  # update plot every 10 steps
-        # Update backbone line
-        line.set_data(positions[:,0], positions[:,1])
-        line.set_3d_properties(positions[:,2])
+          # Only update axes
+          ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
+          ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
+          ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
-        # Update points
-        points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
-
-        # Only update axes
-        ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
-        ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
-        ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
-
-        plt.draw()
-        plt.pause(0.001)
+          plt.draw()
+          plt.pause(0.001)
 
 plt.ioff()
+
+#print(F)
+plt.plot(time_list, position_diff_list)
+position_diff = initial_positions - positions
+#print(np.mean(np.linalg.norm(position_diff, axis=0)))
+plot_protein_3d_interactive(positions, keys=None)
+
