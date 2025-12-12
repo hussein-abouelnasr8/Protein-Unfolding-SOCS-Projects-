@@ -603,9 +603,9 @@ r_trap0 = 2
 v_pull = 1
 
 #stiffness factors
-k_r = 20
-k_phi = 0.02
-k_theta = 0.1
+k_r = 500
+k_phi = 2
+k_theta = 30
 k_trap = 1
 
 tot_duration = 3e5
