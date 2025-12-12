@@ -141,7 +141,7 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 9.21*(10**-12) #Conversion to 10**-10 N
+                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 9.21*(10**-3) #Conversion to 10**-10 N
 
                 fij = fmag * rhat
                 forces[i] += fij 
@@ -629,7 +629,7 @@ k_phi = 0.02
 k_theta = 0.1
 k_trap = 1
 
-tot_duration = 10**9
+tot_duration = 10**7
 time_steps = tot_duration/dt
 time = 0
 idx_pull = -1 #pulling last bead in amino acid chain
@@ -661,10 +661,11 @@ for t in range(int(time_steps)):
   if time%10000 == 0:
       print(time)
 
-print(F)
+#print(F)
 plt.plot(time_list, position_diff_list)
 plt.ylabel('Displacement')
 plt.xlabel('Time (ns)')
+plt.show()
 position_diff = initial_positions - positions
 print(np.linalg.norm(position_diff))
 plot_protein_3d_interactive(positions, keys=None)
