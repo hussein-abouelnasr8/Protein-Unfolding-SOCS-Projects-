@@ -713,17 +713,12 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull):
 
 v_pull = -1e-1
 velocities = np.zeros_like(positions)
-
-# --- Toggle for showing coordinates ---
-show_coords = True  # Set False to hide coordinates
-
 plt.ion()
 fig = plt.figure(figsize=(10, 8))
 ax = fig.add_subplot(111, projection='3d')
 
 line, = ax.plot([], [], [], 'k-', lw=2)  # backbone line
 points = ax.scatter([], [], [], c='r', s=40)  # Cα atoms
-texts = []  # to store coordinate labels
 
 # Initial axis limits
 padding = 5.0
@@ -731,7 +726,7 @@ ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
 ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
 ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
-# --- Simulation loop with live plotting ---
+# --- Simulation loop ---
 for t in range(int(time_steps)):
 
     F = total_force_contribution(positions, t,
@@ -750,25 +745,23 @@ for t in range(int(time_steps)):
         # Update points
         points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
 
-        # Remove old coordinate labels
-        for txt in texts:
-            txt.remove()
-        texts = []
-
-        if show_coords:
-            # Add new labels (x,y,z) for each bead
-            for i, (x, y, z) in enumerate(positions):
-                coord_label = f"({x:.2f},{y:.2f},{z:.2f})"
-                texts.append(ax.text(x, y, z, coord_label, fontsize=8, color='blue'))
-
-        # Dynamically update axes limits
+        # Only update axes
         ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
         ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
         ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
         plt.draw()
-        plt.pause(0.001)  # small pause for GUI to update
+        plt.pause(0.001)
 
-# --- Keep the final figure open ---
 plt.ioff()
+
+# --- Add hoverable coordinates at the end ---
+cursor = mplcursors.cursor(points, hover=True)
+@cursor.connect("add")
+def on_hover(sel):
+    i = sel.target.index
+    c, r = keys[i]
+    x, y, z = positions[i]
+    sel.annotation.set_text(f"{c}{r}: ({x:.2f}, {y:.2f}, {z:.2f})")
+
 plt.show()
