@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 from Bio.PDB import PDBParser
 import plotly.graph_objects as go
 import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 parser = PDBParser(QUIET=True)
 structure = parser.get_structure("protein", "1NCT.pdb")
@@ -711,30 +713,38 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull):
 
 v_pull = -1e-1
 velocities = np.zeros_like(positions)
+
+# --- Interactive 3D plot setup ---
+plt.ion()
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+line, = ax.plot([], [], [], 'k-', lw=2)  # backbone line
+points = ax.scatter([], [], [], c='r', s=20)  # Cα atoms
+
+# set initial axis limits based on positions
+ax.set_xlim(np.min(positions[:,0]), np.max(positions[:,0]))
+ax.set_ylim(np.min(positions[:,1]), np.max(positions[:,1]))
+ax.set_zlim(np.min(positions[:,2]), np.max(positions[:,2]))
+
+# --- Simulation loop with live plotting ---
 for t in range(int(time_steps)):
-  
-  F = total_force_contribution(positions, t,
+
+    F = total_force_contribution(positions, t,
         idx_pull, k_trap, r_trap0, v_pull,
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
         k_r, r_eq, keys, hydroph_m, radius, residue_names)
-  positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull)
+    
+    positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull)
 
-  planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
-  di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
-  time += dt
-  if int(time)%10 == 0:
-      
-      position_diff = initial_positions - positions
-      position_diff_list.append(np.linalg.norm(position_diff))
-      
-      
-      time_list.append(time)
-  if int(time)%10 == 0:
-      print(time)
+    if t % 10 == 0:  # update plot every 10 steps
+        # Update backbone line
+        line.set_data(positions[:,0], positions[:,1])
+        line.set_3d_properties(positions[:,2])
 
-print(F)
-plt.plot(time_list, position_diff_list)
-position_diff = initial_positions - positions
-print(np.mean(np.linalg.norm(position_diff, axis=0)))
-plot_protein_3d_interactive(positions, keys=None)
+        # Update points
+        points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
+
+        plt.draw()
+        plt.pause(0.001)  # small pause for GUI to update
