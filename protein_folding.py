@@ -69,6 +69,7 @@ def hydro_forces(
         residue_names,
         hydroph_m,
         radius,
+        N_A,
     ):
     """
     Find non-bonded, non-adjacent contacts filtered by hydrophobicity,
@@ -141,7 +142,7 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 5.52e-3 #Conversion to 10**-10 N
+                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 5.52/N_A #Conversion to 10**-10 N
 
                 fij = fmag * rhat
                 forces[i] += fij 
@@ -544,7 +545,7 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
-    #F += hydro_forces(positions, keys, residue_names, hydroph_m, radius)
+    #F += hydro_forces(positions, keys, residue_names, hydroph_m, radius, N_A)
     #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
@@ -608,7 +609,7 @@ k_phi = 2
 k_theta = 30
 k_trap = 1
 
-tot_duration = 1e5
+tot_duration = 3e4
 time_steps = tot_duration/dt
 time = 0
 idx_pull = -1 #pulling last bead in amino acid chain
@@ -646,7 +647,7 @@ m_md = mass_to_md_units(mass_amu)   # scalar in kJ·ps^2 / nm^2
 masses_md = np.full(N, m_md)        # if N beads
 
 # --- BAOAB integrator step ---
-def baoab_step(positions, velocities, masses_md, dt, gamma, T, F):
+def baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull):
     """
     One BAOAB Langevin step.
     - positions: (N,3) nm
@@ -687,6 +688,9 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F):
     # draw normal noise per particle & per dimension
     xi = np.random.normal(size=(N,3))
     velocities = (c * velocities) + (sigma[:,None] * xi)
+    
+    ###IF PULL UNCOMMENT BELOW
+    velocities[-1] = np.array([v_pull, 0, 0]).reshape(1, 3)
 
     # Step A (half drift): x += 0.5*dt * v
     positions = positions + 0.5 * dt * velocities
@@ -698,9 +702,14 @@ def baoab_step(positions, velocities, masses_md, dt, gamma, T, F):
          angle_quadruple_indices, k_phi, phi_eq,
          k_r, r_eq, keys, hydroph_m, radius, residue_names)
     velocities = velocities + 0.5 * dt * (F * inv_m[:,None])
+   
+    ###IF PULL UNCOMMENT BELOW
+    velocities[-1] = np.array([v_pull, 0, 0]).reshape(1, 3)
+    positions[0] = initial_positions[0]
 
     return positions, velocities
 
+v_pull = -1e-1
 velocities = np.zeros_like(positions)
 for t in range(int(time_steps)):
   
@@ -709,7 +718,7 @@ for t in range(int(time_steps)):
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
         k_r, r_eq, keys, hydroph_m, radius, residue_names)
-  positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F)
+  positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull)
 
   planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
   di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
