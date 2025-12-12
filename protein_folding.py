@@ -525,7 +525,25 @@ def non_contact_forces(positions, pairs, A, B, charges, epsilon):
     np.add.at(F, j, -fij)
     return F
 
-  
+def F_pull(t, dt, v_pull, x_min, x_max):
+    """
+    positions : (N,3)
+    t         : scalar time (current time)
+    x_min   : (3,) final bead being pulled
+    v_pull    : (3,) pulling velocity vector
+    """
+    Tf = (x_max - x_min)/v_pull
+    T_tot = 2 * Tf
+
+    tau = np.mod(t,T_tot)
+
+    if tau < Tf:
+        x_delta = - 1 * v_pull * dt
+    else:
+        x_delta = v_pull * dt
+    
+    return x_delta
+
     
 def total_force_contribution(
         positions, t,
