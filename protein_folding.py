@@ -473,24 +473,27 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
 
 #External pulling force (Optical Tweezer) We can choose to pull in just one direction,
 #i.e. setting y & z velocity components to zero & choosing an x-only velocity value
-def F_pull(t, dt, v_pull, x_min, x_max):
+def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
     """
     positions : (N,3)
-    t         : scalar time (current time)
-    x_min   : (3,) final bead being pulled
+    t         : scalar time
+    idx       : index of pulled bead (usually last one, so just -1, but here for generalizability )(int)
+    k_trap    : trap stiffness (scalar)
+    r_trap0   : (3,) initial trap center position
     v_pull    : (3,) pulling velocity vector
     """
-    Tf = (x_max - x_min)/v_pull
-    T_tot = 2 * Tf
 
-    tau = np.mod(t,T_tot)
+    # Trap center at time t
+    r_trap = r_trap0 + v_pull * t          # (3,)
 
-    if tau < Tf:
-        x_delta = x_min + v_pull * dt
-    else:
-        x_delta = x_max - v_pull * (dt - Tf)
-    
-    return x_delta
+    # Vector from trap center to bead
+    delta = positions[idx] - r_trap        # (3,)
+
+    # Spring force
+    F = np.zeros_like(positions)
+    F[idx] = -k_trap * delta               # (3,)
+
+    return F
 
 
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
@@ -574,9 +577,7 @@ def langevin_step(positions, gamma, dt, kB, T, total_force):
     W1 = sigma * np.random.normal(size = positions.shape)
 
     #----- 3. Half-step position update ---
-    ositions_new = positions[:N-1, :] + (dt/ g) * total_force[:N-1, :] + W1[:N-1, :]
-    
-    np.append(positions_new, positions[-1, :]+F_pull(t, dt, idx, x_min, x_max))
+    positions_new = positions + (dt/ g) * total_force + W1
 
     return positions_new
 
@@ -610,7 +611,7 @@ k_phi = 0.02
 k_theta = 0.1
 k_trap = 1
 
-tot_duration = 10**7
+tot_duration = 10**9
 time_steps = tot_duration/dt
 time = 0
 idx_pull = -1 #pulling last bead in amino acid chain
@@ -644,6 +645,8 @@ for t in range(int(time_steps)):
 
 print(F)
 plt.plot(time_list, position_diff_list)
+plt.ylabel('Displacement')
+plt.xlabel('Time (ns)')
 position_diff = initial_positions - positions
 print(np.linalg.norm(position_diff))
 plot_protein_3d_interactive(positions, keys=None)
