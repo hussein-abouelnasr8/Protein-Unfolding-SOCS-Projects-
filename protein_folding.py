@@ -753,7 +753,8 @@ pull_period = pulling_time(positions, v_pull, dt)
 print(pull_period)
 
 print(dt)
-tot_duration = 2*pull_period
+num_periods = 2
+tot_duration = num_periods*pull_period
 time_steps = tot_duration/dt
 print(time_steps)
 #Live visualization plot
@@ -770,17 +771,19 @@ ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
 ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
 ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
-
+extension_list = [[] for period in range(num_periods)]
+total_system_force_list = [[] for period in range(num_periods)]
+total_system_force_x_list = [[] for period in range(num_periods)]
+i = 0
 
 for time_step in range(int(time_steps)):
-
   F = total_force_contribution(positions,
         idx_pull, k_trap, r_trap0, v_pull,
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
         k_r, r_eq, keys, hydroph_m, radius, residue_names)
+  
   positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull, time, pull_period)
-
   planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
   di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
   time += dt
@@ -791,30 +794,56 @@ for time_step in range(int(time_steps)):
       
       
       time_list.append(time)
-  if int(time)%10 == 0:
-      print(time)
-      
-  if time_step % 100 == 0:  # update plot every 10 steps
-          # Update backbone line
-          line.set_data(positions[:,0], positions[:,1])
-          line.set_3d_properties(positions[:,2])
+  #if int(time)%10 == 0:
+      #print(time)
+  if time_step != 0:    
+    if time_step % (int(time_steps/(num_periods))) == 0:
+        i+=1
+  if time_step % 100 == 0:  # update plot every 1000 steps
+          
+        total_system_force = np.sum(np.linalg.norm(F, axis = 1))
+        total_system_force_list[i].append(total_system_force)
+        total_system_force_x = np.sum(F[:,0])
+        total_system_force_x_list[i].append(total_system_force_x)
+        extension = positions[-1,0]
+        extension_list[i].append(np.abs(extension))
+        # Update backbone line
+        line.set_data(positions[:,0], positions[:,1])
+        line.set_3d_properties(positions[:,2])
 
-          # Update points
-          points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
+        # Update points
+        points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
 
-          # Only update axes
-          ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
-          ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
-          ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
+        # Only update axes
+        ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
+        ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
+        ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
 
-          plt.draw()
-          plt.pause(0.001)
+        plt.draw()
+        plt.pause(0.001)
+
+  print(i)
 
 plt.ioff()
 
+fig, axs = plt.subplots(i+1, 1)
+for plt_index in range(i+1):
+    axs[plt_index].plot(extension_list[plt_index], total_system_force_list[plt_index], label='total force')
+    axs[plt_index].set_title(f'force vs extension {plt_index+1}')
+    axs[plt_index].plot(extension_list[plt_index], total_system_force_x_list[plt_index], label='x force')
+    
+plt.legend(bbox_to_anchor= (0, -2))
+plt.tight_layout()
+plt.show()
+np.array(total_system_force_list)
+np.array(total_system_force_x_list)
+np.array(extension_list)
+
+np.savetxt("total_force_output.csv", total_system_force_list, delimiter=",")
+np.savetxt("total_force_x_output.csv", total_system_force_x_list, delimiter=",")
+np.savetxt("extension_output.csv", extension_list, delimiter=",")
 #print(F)
 plt.plot(time_list, position_diff_list)
 position_diff = initial_positions - positions
 #print(np.mean(np.linalg.norm(position_diff, axis=0)))
 plot_protein_3d_interactive(positions, keys=None)
-
