@@ -141,7 +141,7 @@ def hydro_forces(
                 # compute force
                 rij = diff[i, j]
                 rhat = rij / d
-                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 9.21*(10**-12) #Conversion to 10**-10 N
+                fmag = 1.25 *(m_i + m_j)*(2*d - 2*radius) * 5.52 #Conversion to 10**-10 N
 
                 fij = fmag * rhat
                 forces[i] += fij 
@@ -473,27 +473,24 @@ def F_dihedrals(positions, dihedral_quads, k_phi, phi_eq):
 
 #External pulling force (Optical Tweezer) We can choose to pull in just one direction,
 #i.e. setting y & z velocity components to zero & choosing an x-only velocity value
-def F_pull(positions, t, idx, k_trap, r_trap0, v_pull):
+def F_pull(t, dt, v_pull, x_min, x_max):
     """
     positions : (N,3)
-    t         : scalar time
-    idx       : index of pulled bead (usually last one, so just -1, but here for generalizability )(int)
-    k_trap    : trap stiffness (scalar)
-    r_trap0   : (3,) initial trap center position
+    t         : scalar time (current time)
+    x_min   : (3,) final bead being pulled
     v_pull    : (3,) pulling velocity vector
     """
+    Tf = (x_max - x_min)/v_pull
+    T_tot = 2 * Tf
 
-    # Trap center at time t
-    r_trap = r_trap0 + v_pull * t          # (3,)
+    tau = np.mod(t,T_tot)
 
-    # Vector from trap center to bead
-    delta = positions[idx] - r_trap        # (3,)
-
-    # Spring force
-    F = np.zeros_like(positions)
-    F[idx] = -k_trap * delta               # (3,)
-
-    return F
+    if tau < Tf:
+        x_delta = x_min + v_pull * dt
+    else:
+        x_delta = x_max - v_pull * (dt - Tf)
+    
+    return x_delta
 
 
 # Non contact force contributions from Lennard-Jones & Coulombic (electrostatic) potentials
@@ -547,12 +544,12 @@ def total_force_contribution(
     F  = F_bonds(positions, k_r, r_eq)
     F += F_bb_angles(positions, planar_triples, k_theta, theta_eq)
     F += F_dihedrals(positions, dihedral_quads, k_phi, phi_eq)
-    F += hydro_forces(positions, keys, residue_names, hydroph_m, radius)
+    #F += hydro_forces(positions, keys, residue_names, hydroph_m, radius)
     #F += F_pull(positions, t, idx_pull, k_trap, r_trap0, v_pull)
 
     return F
           
-def langevin_step(positions, gamma, dt, kB, T, total_force):
+def langevin_step(positions, gamma, dt, kB, T, total_force, N_a):
     """
     positions : (N,3)
     velocities: (N,3)
@@ -573,7 +570,7 @@ def langevin_step(positions, gamma, dt, kB, T, total_force):
       # (N,3)
 
      # --- 2. First noise term ---
-    sigma = np.sqrt((2 * kB * T * dt) / g)  # (N,1)
+    sigma = np.sqrt((2 * (kB/N_a) * T * dt) / g)  # (N,1)
     W1 = sigma * np.random.normal(size = positions.shape)
 
     #----- 3. Half-step position update ---
@@ -589,14 +586,14 @@ angle_quadruple_indices = angle_quadruples(N)
 
 #model parameters
 radius = 0.2 # bead radii 
-eta = 6.9e6
-gamma = 6* np.pi * eta * radius
+gamma = 5
 # Change gamma to N,1 vector
 gammas = np.full(N, gamma) 
 #gammas = gammas[:,None]
-dt = 100
-kB = 1.38e-23
+dt = 0.1
+kB = 0.0083
 T = 300
+N_a = 6e23
 
 #equilibrium values
 theta_eq = 110*(np.pi/180)
@@ -611,7 +608,7 @@ k_phi = 0.02
 k_theta = 0.1
 k_trap = 1
 
-tot_duration = 10**9
+tot_duration = 3e5
 time_steps = tot_duration/dt
 time = 0
 idx_pull = -1 #pulling last bead in amino acid chain
@@ -628,28 +625,23 @@ for t in range(int(time_steps)):
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
         k_r, r_eq, keys, hydroph_m, radius, residue_names)
-  positions = langevin_step(positions, gammas, dt, kB, T, F)
+  positions = langevin_step(positions, gammas, dt, kB, T, F, N_a)
 
   planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
   di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
   time += dt
-  if time%1000 == 0:
+  if int(time)%10 == 0:
       
       position_diff = initial_positions - positions
       position_diff_list.append(np.linalg.norm(position_diff))
       
       
       time_list.append(time)
-  if time%10000 == 0:
+  if int(time)%10 == 0:
       print(time)
 
 print(F)
 plt.plot(time_list, position_diff_list)
-plt.ylabel('Displacement')
-plt.xlabel('Time (ns)')
 position_diff = initial_positions - positions
 print(np.linalg.norm(position_diff))
 plot_protein_3d_interactive(positions, keys=None)
-
-        
-        
