@@ -827,7 +827,7 @@ time_steps = tot_duration/dt
 print('time steps')
 print(time_steps)
 
-settle_time = 1000
+settle_time = 5000
 settle_timesteps = int(settle_time/dt)
 
 for settle_t in range(settle_timesteps):
@@ -843,108 +843,127 @@ for settle_t in range(settle_timesteps):
         print(settle_t)
 
 #Live visualization plot
-plt.ion()
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+# plt.ion()
+# fig = plt.figure(figsize=(10, 8))
+# ax = fig.add_subplot(111, projection='3d')
 
-line, = ax.plot([], [], [], 'k-', lw=2)  # backbone line
-points = ax.scatter([], [], [], c='r', s=40)  # Cα atoms
+# line, = ax.plot([], [], [], 'k-', lw=2)  # backbone line
+# points = ax.scatter([], [], [], c='r', s=40)  # Cα atoms
 
 # Initial axis limits
-padding = 5.0
-ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
-ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
-ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
-ax.set_xlabel('x')
-ax.set_ylabel('y')
-ax.set_zlabel('z')
+# padding = 5.0
+# ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
+# ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
+# ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
+# ax.set_xlabel('x')
+# ax.set_ylabel('y')
+# ax.set_zlabel('z')
 
 extension_list = []
 total_system_force_list = [[] for period in range(num_periods)]
 total_system_force_x_list = [[] for period in range(num_periods)]
 time_list = []
 
-F_pull_kjmol = 15
-F_pull_pico_newtons = F_pull_kjmol *1.66
-F_pull = F_pull_kjmol/N_A
+# F_pull_kjmol = 50
+# F_pull_pico_newtons = F_pull_kjmol *1.66
+# F_pull = F_pull_kjmol/N_A
 
-time_steps = 200000
+time_steps = 75000
 
-for time_step in range(int(time_steps)):
-  F = total_force_contribution(positions,
-        idx_pull, k_trap, r_trap0, v_pull,
-        angle_triple_indices, k_theta, theta_eq,
-        angle_quadruple_indices, k_phi, phi_eq,
-        k_r, r_eq, keys, hydroph_m, radius, residue_names)
-  F[-1, 0] -= F_pull
-  
-  positions, velocities = baoab_step_pull(positions, velocities, masses_md, dt, gamma, T, F, F_pull, time, pull_period)
-  planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
-  di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
-  time += dt
-  if int(time)%10 == 0:
-      
-      position_diff = initial_positions - positions
-      position_diff_list.append(np.linalg.norm(position_diff))
-      
-      
-      
-  if int(time_step)%1000 == 0: 
-      print(time_step)
+F_pull_list_kjmol = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80])
+F_pull_list_pN = F_pull_list_kjmol*1.66
+F_pull_list = F_pull_list_kjmol/N_A
 
-  if time_step % 100 == 0:  # update plot every 1000 steps
+equilibrium = []
+
+for F_index in range(len(F_pull_list)):
+    F_pull = F_pull_list[F_index]
+    
+    for time_step in range(int(time_steps)):
+      F = total_force_contribution(positions,
+            idx_pull, k_trap, r_trap0, v_pull,
+            angle_triple_indices, k_theta, theta_eq,
+            angle_quadruple_indices, k_phi, phi_eq,
+            k_r, r_eq, keys, hydroph_m, radius, residue_names)
+      F[-1, 0] -= F_pull
+      
+      positions, velocities = baoab_step_pull(positions, velocities, masses_md, dt, gamma, T, F, F_pull, time, pull_period)
+      planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
+      di_angles = dihedral_angles(positions, angle_quadruple_indices, degrees = True)
+      time += dt
+      # if int(time)%10 == 0:
           
-        # total_system_force = np.sum(np.linalg.norm(F, axis = 1))
-        # total_system_force_list[i].append(total_system_force)
-        # total_system_force_x = np.sum(F[:,0])
-        # total_system_force_x_list[i].append(total_system_force_x)
-        
-        extension = positions[-1,0]
-        extension_list.append(np.abs(extension))
-        
-        time_list.append(time)
-        # Update backbone line
-        line.set_data(positions[:,0], positions[:,1])
-        line.set_3d_properties(positions[:,2])
-
-        # # Update points
-        points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
-
-        # # Only update axes
-        ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
-        ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
-        ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
-
-        plt.draw()
-        plt.pause(0.001)
-        print('extension')
-        print(np.abs(extension))
-        if time_step > 300:
-            print('diff')
-            print(np.abs(extension) - np.abs(extension_list[-2]))
+      #     position_diff = initial_positions - positions
+      #     position_diff_list.append(np.linalg.norm(position_diff))
+          
+          
+          
+      if int(time_step)%1000 == 0: 
+          print(time_step)
+          
+      if time_step >= 70000:
+          if time_step%100 == 0:
+              extension = positions[-1,0]
+              extension_list.append(extension)
+              
+             
+    
+      # if time_step % 100 == 0:  # update plot every 1000 steps
+              
+      #       # total_system_force = np.sum(np.linalg.norm(F, axis = 1))
+      #       # total_system_force_list[i].append(total_system_force)
+      #       # total_system_force_x = np.sum(F[:,0])
+      #       # total_system_force_x_list[i].append(total_system_force_x)
+            
+            
+      #       extension_list.append(np.abs(extension))
+            
+      #       time_list.append(time)
+      #       # Update backbone line
+      #       line.set_data(positions[:,0], positions[:,1])
+      #       line.set_3d_properties(positions[:,2])
+    
+      #       # # Update points
+      #       points._offsets3d = (positions[:,0], positions[:,1], positions[:,2])
+    
+            # # Only update axes
+            # ax.set_xlim(np.min(positions[:,0])-padding, np.max(positions[:,0])+padding)
+            # ax.set_ylim(np.min(positions[:,1])-padding, np.max(positions[:,1])+padding)
+            # ax.set_zlim(np.min(positions[:,2])-padding, np.max(positions[:,2])+padding)
+    
+            # plt.draw()
+            # plt.pause(0.001)
+            # print('extension')
+            # print(np.abs(extension))
+            # if time_step > 300:
+            #     print('diff')
+            #     print(np.abs(extension) - np.abs(extension_list[-2]))
+    extension_list = np.array(extension_list)            
+    extension_mean = np.mean(extension_list)
+    equilibrium.append(extension_mean)
+    
 
  # print(i)
 
 #plt.ioff()
 
-plt.figure(figsize=(8, 5))
-plt.plot(time_list, extension_list)
-plt.xlabel("Time (ps)")
-plt.ylabel("Extension (nm)")
-plt.title(f"Extension vs Time for F = {F_pull_pico_newtons:.2f} pN")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+# plt.figure(figsize=(8, 5))
+# plt.plot(time_list, extension_list)
+# plt.xlabel("Time (ps)")
+# plt.ylabel("Extension (nm)")
+# plt.title(f"Extension vs Time for F = {F_pull_pico_newtons:.2f} pN")
+# plt.grid(True)
+# plt.tight_layout()
+# plt.show()
 
-plot_protein_3d_interactive(positions, keys=None)
+# plot_protein_3d_interactive(positions, keys=None)
 
 
 np.savez(
-    f"extension_{F_pull_kjmol}.npz",
-    total_system_force_list=np.array(total_system_force_list, dtype=object),
-    total_system_force_x_list=np.array(total_system_force_x_list, dtype=object),
-    extension_list=np.array(extension_list, dtype=object),
-    time_list=np.array(time_list, dtype=object),
+    "force_extension_data.npz",
+    equilibrium=np.array(equilibrium, dtype=object),
+    force=np.array(F_pull_list_pN, dtype=object),
+    final_positions=np.array(positions, dtype=object)
 )
 
 
