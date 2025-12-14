@@ -827,7 +827,7 @@ time_steps = tot_duration/dt
 print('time steps')
 print(time_steps)
 
-settle_time = 10
+settle_time = 500
 settle_timesteps = int(settle_time/dt)
 
 for settle_t in range(settle_timesteps):
@@ -838,6 +838,9 @@ for settle_t in range(settle_timesteps):
           k_r, r_eq, keys, hydroph_m, radius, residue_names)
     
     positions, velocities = baoab_step(positions, velocities, masses_md, dt, gamma, T, F, v_pull, time, pull_period)
+    
+    if settle_t% 100 ==0:
+        print(settle_t)
 
 #Live visualization plot
 plt.ion()
@@ -856,14 +859,14 @@ ax.set_xlabel('x')
 ax.set_ylabel('y')
 ax.set_zlabel('z')
 
-extension_list = [[] for period in range(num_periods)]
+extension_list = []
 total_system_force_list = [[] for period in range(num_periods)]
 total_system_force_x_list = [[] for period in range(num_periods)]
 time_list = []
-i = 0
 
-F_pull = 100/N_A
-time_steps = 10000
+
+F_pull = 30/N_A
+time_steps = 100000
 
 for time_step in range(int(time_steps)):
   F = total_force_contribution(positions,
@@ -883,21 +886,19 @@ for time_step in range(int(time_steps)):
       position_diff_list.append(np.linalg.norm(position_diff))
       
       
-      time_list.append(time)
+      
   if int(time_step)%1000 == 0: 
       print(time_step)
-  if time_step != 0:    
-    if time_step % (int(time_steps/(num_periods))) == 0:
-        i+=1
+
   if time_step % 100 == 0:  # update plot every 1000 steps
           
-        total_system_force = np.sum(np.linalg.norm(F, axis = 1))
-        total_system_force_list[i].append(total_system_force)
-        total_system_force_x = np.sum(F[:,0])
-        total_system_force_x_list[i].append(total_system_force_x)
+        # total_system_force = np.sum(np.linalg.norm(F, axis = 1))
+        # total_system_force_list[i].append(total_system_force)
+        # total_system_force_x = np.sum(F[:,0])
+        # total_system_force_x_list[i].append(total_system_force_x)
         
         extension = positions[-1,0]
-        extension_list[i].append(np.abs(extension))
+        extension_list.append(np.abs(extension))
         
         time_list.append(time)
         # Update backbone line
@@ -918,11 +919,21 @@ for time_step in range(int(time_steps)):
         print(np.abs(extension))
         if time_step > 300:
             print('diff')
-            print(np.abs(extension) - np.abs(extension_list[0][-2]))
+            print(np.abs(extension) - np.abs(extension_list[-2]))
 
  # print(i)
 
-plt.ioff()
+#plt.ioff()
+
+plt.figure(figsize=(8, 5))
+plt.plot(time_list, extension_list)
+plt.xlabel("Time (ps)")
+plt.ylabel("Extension (nm)")
+plt.title("Extension vs Time for F = ")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
 plot_protein_3d_interactive(positions, keys=None)
 
 
@@ -934,9 +945,8 @@ np.savez(
     time_list=np.array(time_list, dtype=object),
 )
 
-plt.plot(time_list, extension_list)
-plt.title('extension per time')
-plt.show()
+
+
 
 
 # fig, axs = plt.subplots(i+1, 1)
