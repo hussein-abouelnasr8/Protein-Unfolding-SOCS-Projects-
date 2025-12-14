@@ -614,7 +614,7 @@ gamma = 5
 # Change gamma to N,1 vector
 gammas = np.full(N, gamma) 
 #gammas = gammas[:,None]
-dt = 0.05
+dt = 0.3
 kB = 0.0083
 T = 300
 N_a = 6e23
@@ -827,7 +827,7 @@ time_steps = tot_duration/dt
 print('time steps')
 print(time_steps)
 
-settle_time = 500
+settle_time = 1000
 settle_timesteps = int(settle_time/dt)
 
 for settle_t in range(settle_timesteps):
@@ -864,11 +864,11 @@ total_system_force_list = [[] for period in range(num_periods)]
 total_system_force_x_list = [[] for period in range(num_periods)]
 time_list = []
 
-F_pull_kjmol = 25
+F_pull_kjmol = 15
 F_pull_pico_newtons = F_pull_kjmol *1.66
 F_pull = F_pull_kjmol/N_A
 
-time_steps = 100000
+time_steps = 200000
 
 for time_step in range(int(time_steps)):
   F = total_force_contribution(positions,
@@ -940,7 +940,7 @@ plot_protein_3d_interactive(positions, keys=None)
 
 
 np.savez(
-    "pulling_cycles_1.npz",
+    f"extension_{F_pull_kjmol}.npz",
     total_system_force_list=np.array(total_system_force_list, dtype=object),
     total_system_force_x_list=np.array(total_system_force_x_list, dtype=object),
     extension_list=np.array(extension_list, dtype=object),
