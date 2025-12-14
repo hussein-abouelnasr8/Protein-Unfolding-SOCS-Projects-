@@ -870,7 +870,7 @@ time_list = []
 
 time_steps = 75000
 
-F_pull_list_kjmol = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80])
+F_pull_list_kjmol = np.array([1, 2, 2.5, 3, 3.5, 4, 4.25, 4.5, 4.75, 5, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7, 7.25, 7.5, 7.75, 8])
 F_pull_list_pN = F_pull_list_kjmol*1.66
 F_pull_list = F_pull_list_kjmol/N_A
 
@@ -900,6 +900,8 @@ for F_index in range(len(F_pull_list)):
           
       if int(time_step)%1000 == 0: 
           print(time_step)
+          print('force:')
+          print(F_pull*N_A)
           
       if time_step >= 70000:
           if time_step%100 == 0:
@@ -938,7 +940,7 @@ for F_index in range(len(F_pull_list)):
             # if time_step > 300:
             #     print('diff')
             #     print(np.abs(extension) - np.abs(extension_list[-2]))
-    extension_list = np.array(extension_list)            
+    extension_list = extension_list         
     extension_mean = np.mean(extension_list)
     equilibrium.append(extension_mean)
     
