@@ -728,9 +728,10 @@ def baoab_step_pull(positions, velocities, masses_md, dt, gamma, T, F, F_pull, t
          angle_triple_indices, k_theta, theta_eq,
          angle_quadruple_indices, k_phi, phi_eq,
          k_r, r_eq, keys, hydroph_m, radius, residue_names)
+    F[-1, 0] -= F_pull
     velocities = velocities + 0.5 * dt * (F * inv_m[:,None])
     
-    F[-1] += F_pull
+    
 
 
     ###IF PULL UNCOMMENT BELOW
@@ -858,9 +859,11 @@ ax.set_zlabel('z')
 extension_list = [[] for period in range(num_periods)]
 total_system_force_list = [[] for period in range(num_periods)]
 total_system_force_x_list = [[] for period in range(num_periods)]
+time_list = []
 i = 0
 
 F_pull = 100/N_A
+time_steps = 10000
 
 for time_step in range(int(time_steps)):
   F = total_force_contribution(positions,
@@ -868,7 +871,7 @@ for time_step in range(int(time_steps)):
         angle_triple_indices, k_theta, theta_eq,
         angle_quadruple_indices, k_phi, phi_eq,
         k_r, r_eq, keys, hydroph_m, radius, residue_names)
-  F[-1] += F_pull
+  F[-1, 0] -= F_pull
   
   positions, velocities = baoab_step_pull(positions, velocities, masses_md, dt, gamma, T, F, F_pull, time, pull_period)
   planar_angles = planar_bond_angles(positions, angle_triple_indices, degrees=True)
@@ -892,8 +895,11 @@ for time_step in range(int(time_steps)):
         total_system_force_list[i].append(total_system_force)
         total_system_force_x = np.sum(F[:,0])
         total_system_force_x_list[i].append(total_system_force_x)
+        
         extension = positions[-1,0]
         extension_list[i].append(np.abs(extension))
+        
+        time_list.append(time)
         # Update backbone line
         line.set_data(positions[:,0], positions[:,1])
         line.set_3d_properties(positions[:,2])
@@ -908,33 +914,44 @@ for time_step in range(int(time_steps)):
 
         plt.draw()
         plt.pause(0.001)
+        print('extension')
+        print(np.abs(extension))
+        if time_step > 300:
+            print('diff')
+            print(np.abs(extension) - np.abs(extension_list[0][-2]))
 
  # print(i)
 
 plt.ioff()
 plot_protein_3d_interactive(positions, keys=None)
 
+
 np.savez(
     "pulling_cycles_1.npz",
     total_system_force_list=np.array(total_system_force_list, dtype=object),
     total_system_force_x_list=np.array(total_system_force_x_list, dtype=object),
     extension_list=np.array(extension_list, dtype=object),
+    time_list=np.array(time_list, dtype=object),
 )
 
-
-fig, axs = plt.subplots(i+1, 1)
-for plt_index in range(i+1):
-    axs[plt_index].plot(extension_list[plt_index], total_system_force_list[plt_index], label='total force')
-    axs[plt_index].set_title(f'force vs extension {plt_index+1}')
-    axs[plt_index].plot(extension_list[plt_index], total_system_force_x_list[plt_index], label='x force')
-    
-plt.legend(bbox_to_anchor= (0, -2))
-plt.tight_layout()
+plt.plot(time_list, extension_list)
+plt.title('extension per time')
 plt.show()
 
 
+# fig, axs = plt.subplots(i+1, 1)
+# for plt_index in range(i+1):
+#     axs[plt_index].plot(extension_list[plt_index], total_system_force_list[plt_index], label='total force')
+#     axs[plt_index].set_title(f'force vs extension {plt_index+1}')
+#     axs[plt_index].plot(extension_list[plt_index], total_system_force_x_list[plt_index], label='x force')
+    
+# plt.legend(bbox_to_anchor= (0, -2))
+# plt.tight_layout()
+# plt.show()
 
-#print(F)
-plt.plot(time_list, position_diff_list)
-position_diff = initial_positions - positions
-print(np.mean(np.linalg.norm(position_diff, axis=0)))
+
+
+# #print(F)
+# plt.plot(time_list, position_diff_list)
+# position_diff = initial_positions - positions
+# print(np.mean(np.linalg.norm(position_diff, axis=0)))
