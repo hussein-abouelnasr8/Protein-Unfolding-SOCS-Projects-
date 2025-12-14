@@ -864,8 +864,10 @@ total_system_force_list = [[] for period in range(num_periods)]
 total_system_force_x_list = [[] for period in range(num_periods)]
 time_list = []
 
+F_pull_kjmol = 25
+F_pull_pico_newtons = F_pull_kjmol *1.66
+F_pull = F_pull_kjmol/N_A
 
-F_pull = 30/N_A
 time_steps = 100000
 
 for time_step in range(int(time_steps)):
@@ -929,7 +931,7 @@ plt.figure(figsize=(8, 5))
 plt.plot(time_list, extension_list)
 plt.xlabel("Time (ps)")
 plt.ylabel("Extension (nm)")
-plt.title("Extension vs Time for F = ")
+plt.title(f"Extension vs Time for F = {F_pull_pico_newtons:.2f} pN")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
